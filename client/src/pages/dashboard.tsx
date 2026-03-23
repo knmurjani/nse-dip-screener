@@ -45,6 +45,7 @@ import {
 import type { ScreenerStock, UniverseStock } from "@shared/schema";
 import { PerplexityAttribution } from "@/components/PerplexityAttribution";
 import BacktestTab from "./backtest-tab";
+import FiltersTab from "./filters-tab";
 
 interface ScreenerData {
   lastUpdated: string;
@@ -296,7 +297,7 @@ export default function Dashboard() {
 
         {/* Main Content */}
         <Tabs value={activeTab} onValueChange={setActiveTab}>
-          <TabsList className="grid w-full max-w-lg grid-cols-4 h-9">
+          <TabsList className="grid w-full max-w-2xl grid-cols-5 h-9">
             <TabsTrigger value="signals" className="text-xs" data-testid="tab-signals">
               <Target className="w-3.5 h-3.5 mr-1.5" />
               Signals ({data?.signals.length ?? 0})
@@ -304,6 +305,10 @@ export default function Dashboard() {
             <TabsTrigger value="universe" className="text-xs" data-testid="tab-universe">
               <BarChart3 className="w-3.5 h-3.5 mr-1.5" />
               Universe ({data?.universe.length ?? 0})
+            </TabsTrigger>
+            <TabsTrigger value="filters" className="text-xs" data-testid="tab-filters">
+              <Filter className="w-3.5 h-3.5 mr-1.5" />
+              Filters
             </TabsTrigger>
             <TabsTrigger value="backtest" className="text-xs" data-testid="tab-backtest">
               <BarChart3 className="w-3.5 h-3.5 mr-1.5" />
@@ -678,6 +683,11 @@ export default function Dashboard() {
                 )}
               </CardContent>
             </Card>
+          </TabsContent>
+
+          {/* FILTERS TAB */}
+          <TabsContent value="filters" className="mt-4">
+            <FiltersTab />
           </TabsContent>
 
           {/* BACKTEST TAB */}

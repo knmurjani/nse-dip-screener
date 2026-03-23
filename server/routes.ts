@@ -4,6 +4,7 @@ import { runScreener, clearCache } from "./screener";
 import { startScheduler } from "./scheduler";
 import { getLoginURL, generateSession, setAccessToken, isAuthenticated, getKite } from "./kite";
 import { getBacktestResult, clearBacktestCache } from "./backtest";
+import { getFilterBreakdown, clearFilterBreakdownCache } from "./filter-breakdown";
 
 export async function registerRoutes(
   httpServer: Server,
@@ -114,6 +115,19 @@ export async function registerRoutes(
       res.json(result);
     } catch (error: any) {
       res.status(500).json({ error: "Backtest failed", message: error.message });
+    }
+  });
+
+  // ─── Filter Breakdown ───
+
+  app.get("/api/filters", async (req, res) => {
+    try {
+      const days = parseInt(req.query.days as string) || 30;
+      const result = await getFilterBreakdown({ lookbackDays: days });
+      res.json(result);
+    } catch (error: any) {
+      console.error("[API] Filter breakdown error:", error.message);
+      res.status(500).json({ error: "Filter breakdown failed", message: error.message });
     }
   });
 
