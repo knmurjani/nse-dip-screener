@@ -33,6 +33,7 @@ export interface StockDayFilter {
   profitTarget: number;
   passedAll: boolean;
   failReason: string;
+  workings: string;
 }
 
 export interface FilterBreakdownResult {
@@ -114,7 +115,7 @@ export async function runFilterBreakdown(params: {
   const LOOKBACK = params.lookbackDays || 30;
   const toDate = new Date();
   const fromDate = new Date();
-  fromDate.setDate(fromDate.getDate() - LOOKBACK - 250); // 200 DMA warmup
+  fromDate.setDate(fromDate.getDate() - LOOKBACK - 320); // 200 DMA warmup (~320 calendar days = ~220 trading days)
 
   const from = fromDate.toISOString().split("T")[0];
   const to = toDate.toISOString().split("T")[0];
@@ -212,6 +213,27 @@ export async function runFilterBreakdown(params: {
       else if (!limitWouldFill) failReason = "Limit not filled";
       else failReason = "—";
 
+      // Detailed workings
+      const w: string[] = [];
+      w.push(`Close ₹${bar.close.toFixed(2)} ${aboveDma200 ? '>' : '<'} 200-DMA ₹${dma200.toFixed(2)} → ${aboveDma200 ? 'PASS ✓' : 'FAIL ✗'}`);
+      if (aboveDma200) {
+        w.push(`Prev Close ₹${prevBar.close.toFixed(2)} → Today ₹${bar.close.toFixed(2)} = ${dropPct.toFixed(2)}% drop ${dippedOver3 ? '> 3% → PASS ✓' : '< 3% → FAIL ✗'}`);
+      }
+      if (aboveDma200 && dippedOver3) {
+        w.push(`ATR(5) = ₹${atr5.toFixed(2)}, ATR% = 100 × ${atr5.toFixed(2)} / ${bar.close.toFixed(2)} = ${atrPctClose.toFixed(2)}% ${passedVolFilter ? '> 3% → PASS ✓' : '≤ 3% → FAIL ✗'}`);
+      }
+      if (aboveDma200 && dippedOver3 && passedVolFilter) {
+        w.push(`Limit = ₹${bar.close.toFixed(2)} − 0.9 × ₹${atr5.toFixed(2)} = ₹${limitPrice.toFixed(2)}`);
+        w.push(`Score = ATR(5)/Close = ${atr5.toFixed(2)}/${bar.close.toFixed(2)} = ${(setupScore * 100).toFixed(2)}`);
+        w.push(`Profit Target = ₹${bar.close.toFixed(2)} + 0.5 × ₹${atr5.toFixed(2)} = ₹${profitTarget.toFixed(2)}`);
+        if (nextDayLow !== null) {
+          w.push(`Next day low = ₹${nextDayLow.toFixed(2)} ${limitWouldFill ? '≤' : '>'} Limit ₹${limitPrice.toFixed(2)} → ${limitWouldFill ? 'FILLED ✓' : 'NOT FILLED ✗'}`);
+        } else {
+          w.push('Next day data unavailable');
+        }
+      }
+      const workings = w.join('\n');
+
       if (aboveDma200) passedDma200++;
       if (aboveDma200 && dippedOver3) passedDip++;
       if (aboveDma200 && dippedOver3 && passedVolFilter) passedVol++;
@@ -239,6 +261,7 @@ export async function runFilterBreakdown(params: {
         profitTarget: Math.round(profitTarget * 100) / 100,
         passedAll: passesAll && limitWouldFill,
         failReason,
+        workings,
       });
     }
   }

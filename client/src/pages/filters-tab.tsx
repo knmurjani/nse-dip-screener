@@ -6,14 +6,14 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Search, CheckCircle2, XCircle, Filter, Calendar, BarChart3 } from "lucide-react";
+import { Search, CheckCircle2, XCircle, Filter, Calendar, BarChart3, ChevronDown, ChevronRight } from "lucide-react";
 
 interface StockDayFilter {
   symbol: string; name: string; date: string; close: number; prevClose: number; changePct: number;
   dma200: number; aboveDma200: boolean; dropPct: number; dippedOver3: boolean;
   atr5: number; atrPctClose: number; passedVolFilter: boolean;
   limitPrice: number; nextDayLow: number | null; limitWouldFill: boolean;
-  setupScore: number; profitTarget: number; passedAll: boolean; failReason: string;
+  setupScore: number; profitTarget: number; passedAll: boolean; failReason: string; workings: string;
 }
 
 interface FilterData {
@@ -36,6 +36,8 @@ export default function FiltersTab() {
   const [selectedStock, setSelectedStock] = useState<string>("");
   const [search, setSearch] = useState("");
   const [filterMode, setFilterMode] = useState<"all" | "passed" | "failed">("all");
+  const [expandedRow, setExpandedRow] = useState<string | null>(null);
+  const [expandedStockRow, setExpandedStockRow] = useState<string | null>(null);
 
   const { data, isLoading } = useQuery<FilterData>({
     queryKey: ["/api/filters"],
@@ -168,10 +170,17 @@ export default function FiltersTab() {
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {dailyData.map((d, i) => (
-                        <TableRow key={i} className={d.passedAll ? "bg-green-500/5" : ""} data-testid={`row-filter-${i}`}>
+                      {dailyData.map((d, i) => {
+                        const rowKey = `${d.symbol}-${d.date}`;
+                        const isExpanded = expandedRow === rowKey;
+                        return (
+                          <>
+                          <TableRow key={i} className={`cursor-pointer ${d.passedAll ? "bg-green-500/5" : ""} ${isExpanded ? "border-b-0" : ""}`} data-testid={`row-filter-${i}`} onClick={() => setExpandedRow(isExpanded ? null : rowKey)}>
                           <TableCell className="py-1.5 pl-3 sticky left-0 bg-inherit z-10">
-                            <span className="text-xs font-semibold">{d.symbol}</span>
+                            <div className="flex items-center gap-1">
+                              {isExpanded ? <ChevronDown className="w-3 h-3 text-muted-foreground" /> : <ChevronRight className="w-3 h-3 text-muted-foreground" />}
+                              <span className="text-xs font-semibold">{d.symbol}</span>
+                            </div>
                           </TableCell>
                           <TableCell className="text-right text-xs tabular-nums py-1.5">{fmtPrice(d.close)}</TableCell>
                           <TableCell className="text-right py-1.5">
@@ -202,7 +211,19 @@ export default function FiltersTab() {
                             </span>
                           </TableCell>
                         </TableRow>
-                      ))}
+                        {isExpanded && (
+                          <TableRow className="bg-muted/30 hover:bg-muted/40">
+                            <TableCell colSpan={13} className="py-2 px-4">
+                              <div className="text-[11px] font-mono leading-relaxed whitespace-pre-line text-muted-foreground">
+                                <span className="text-xs font-semibold text-foreground block mb-1">{d.symbol} — Filter Workings ({d.date})</span>
+                                {d.workings}
+                              </div>
+                            </TableCell>
+                          </TableRow>
+                        )}
+                        </>
+                        );
+                      })}
                     </TableBody>
                   </Table>
                 </div>
@@ -254,9 +275,18 @@ export default function FiltersTab() {
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {stockData.map((d, i) => (
-                        <TableRow key={i} className={d.passedAll ? "bg-green-500/5" : ""}>
-                          <TableCell className="py-1.5 pl-3 text-xs tabular-nums font-medium">{d.date}</TableCell>
+                      {stockData.map((d, i) => {
+                        const rowKey = `${d.symbol}-${d.date}-stock`;
+                        const isExp = expandedStockRow === rowKey;
+                        return (
+                          <>
+                          <TableRow key={i} className={`cursor-pointer ${d.passedAll ? "bg-green-500/5" : ""}`} onClick={() => setExpandedStockRow(isExp ? null : rowKey)}>
+                          <TableCell className="py-1.5 pl-3">
+                            <div className="flex items-center gap-1">
+                              {isExp ? <ChevronDown className="w-3 h-3 text-muted-foreground" /> : <ChevronRight className="w-3 h-3 text-muted-foreground" />}
+                              <span className="text-xs tabular-nums font-medium">{d.date}</span>
+                            </div>
+                          </TableCell>
                           <TableCell className="text-right text-xs tabular-nums py-1.5">{fmtPrice(d.close)}</TableCell>
                           <TableCell className="text-right py-1.5">
                             <span className={`text-xs tabular-nums ${d.changePct >= 0 ? "text-gain" : "text-loss"}`}>
@@ -288,7 +318,19 @@ export default function FiltersTab() {
                             </span>
                           </TableCell>
                         </TableRow>
-                      ))}
+                        {isExp && (
+                          <TableRow className="bg-muted/30">
+                            <TableCell colSpan={13} className="py-2 px-4">
+                              <div className="text-[11px] font-mono leading-relaxed whitespace-pre-line text-muted-foreground">
+                                <span className="text-xs font-semibold text-foreground block mb-1">{d.symbol} — Filter Workings ({d.date})</span>
+                                {d.workings}
+                              </div>
+                            </TableCell>
+                          </TableRow>
+                        )}
+                        </>
+                        );
+                      })}
                     </TableBody>
                   </Table>
                 </div>
