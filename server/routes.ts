@@ -3,6 +3,7 @@ import { createServer, type Server } from "http";
 import { runScreener, clearCache } from "./screener";
 import { startScheduler } from "./scheduler";
 import { getLoginURL, generateSession, setAccessToken, isAuthenticated, getKite } from "./kite";
+import { getBacktestResult, clearBacktestCache } from "./backtest";
 
 export async function registerRoutes(
   httpServer: Server,
@@ -85,6 +86,34 @@ export async function registerRoutes(
     } catch (error: any) {
       console.error("[API] Refresh error:", error.message);
       res.status(500).json({ error: "Failed to refresh", message: error.message });
+    }
+  });
+
+  // ─── Backtest ───
+
+  app.get("/api/backtest", async (req, res) => {
+    try {
+      const capital = parseInt(req.query.capital as string) || 1000000;
+      const maxPos = parseInt(req.query.maxPositions as string) || 20;
+      const months = parseInt(req.query.months as string) || 12;
+      const result = await getBacktestResult({ capitalRs: capital, maxPositions: maxPos, lookbackMonths: months });
+      res.json(result);
+    } catch (error: any) {
+      console.error("[API] Backtest error:", error.message);
+      res.status(500).json({ error: "Backtest failed", message: error.message });
+    }
+  });
+
+  app.post("/api/backtest/refresh", async (req, res) => {
+    try {
+      clearBacktestCache();
+      const capital = parseInt(req.query.capital as string) || 1000000;
+      const maxPos = parseInt(req.query.maxPositions as string) || 20;
+      const months = parseInt(req.query.months as string) || 12;
+      const result = await getBacktestResult({ capitalRs: capital, maxPositions: maxPos, lookbackMonths: months });
+      res.json(result);
+    } catch (error: any) {
+      res.status(500).json({ error: "Backtest failed", message: error.message });
     }
   });
 

@@ -44,6 +44,7 @@ import {
 } from "lucide-react";
 import type { ScreenerStock, UniverseStock } from "@shared/schema";
 import { PerplexityAttribution } from "@/components/PerplexityAttribution";
+import BacktestTab from "./backtest-tab";
 
 interface ScreenerData {
   lastUpdated: string;
@@ -295,7 +296,7 @@ export default function Dashboard() {
 
         {/* Main Content */}
         <Tabs value={activeTab} onValueChange={setActiveTab}>
-          <TabsList className="grid w-full max-w-md grid-cols-3 h-9">
+          <TabsList className="grid w-full max-w-lg grid-cols-4 h-9">
             <TabsTrigger value="signals" className="text-xs" data-testid="tab-signals">
               <Target className="w-3.5 h-3.5 mr-1.5" />
               Signals ({data?.signals.length ?? 0})
@@ -304,9 +305,13 @@ export default function Dashboard() {
               <BarChart3 className="w-3.5 h-3.5 mr-1.5" />
               Universe ({data?.universe.length ?? 0})
             </TabsTrigger>
+            <TabsTrigger value="backtest" className="text-xs" data-testid="tab-backtest">
+              <BarChart3 className="w-3.5 h-3.5 mr-1.5" />
+              Backtest
+            </TabsTrigger>
             <TabsTrigger value="rules" className="text-xs" data-testid="tab-rules">
               <Info className="w-3.5 h-3.5 mr-1.5" />
-              Strategy Rules
+              Rules
             </TabsTrigger>
           </TabsList>
 
@@ -673,6 +678,11 @@ export default function Dashboard() {
                 )}
               </CardContent>
             </Card>
+          </TabsContent>
+
+          {/* BACKTEST TAB */}
+          <TabsContent value="backtest" className="mt-4">
+            <BacktestTab />
           </TabsContent>
 
           {/* RULES TAB */}
