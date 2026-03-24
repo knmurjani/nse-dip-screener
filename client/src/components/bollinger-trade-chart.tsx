@@ -111,27 +111,30 @@ export default function BollingerTradeChart({ symbol, entryDate, exitDate, entry
 
   return (
     <div className="px-2 py-3" data-testid={`bollinger-chart-${symbol}`}>
-      <div className="flex items-center gap-4 mb-2 px-2">
-        <span className="text-[11px] font-semibold">{symbol} Bollinger Bands</span>
-        <div className="flex items-center gap-3 text-[10px] text-muted-foreground">
+      <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-4 mb-2 px-2">
+        <span className="text-xs font-semibold">{symbol} Bollinger Bands</span>
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[10px] text-muted-foreground">
           <span className="flex items-center gap-1">
-            <span className="w-2.5 h-0.5 bg-yellow-500 inline-block rounded" /> 20-DMA
+            <span className="w-3 h-[2px] bg-[#e2e8f0] inline-block rounded" /> Close
           </span>
           <span className="flex items-center gap-1">
-            <span className="w-2.5 h-0.5 bg-blue-400 inline-block rounded" /> ±2σ
+            <span className="w-3 h-[2px] bg-yellow-500 inline-block rounded" /> 20-DMA
           </span>
           <span className="flex items-center gap-1">
-            <span className="w-2.5 h-0.5 bg-red-500/60 inline-block rounded" style={{ borderBottom: "1px dashed" }} /> −3σ Stop
+            <span className="w-3 h-[1px] bg-blue-400 inline-block" style={{ borderTop: "1px dashed #60a5fa" }} /> ±2σ
           </span>
           <span className="flex items-center gap-1">
-            <span className="w-2 h-2 bg-[#22c55e] inline-block rounded-full" /> Entry
+            <span className="w-3 h-[1px] bg-red-500/50 inline-block" style={{ borderTop: "1px dashed #ef4444" }} /> −3σ
           </span>
           <span className="flex items-center gap-1">
-            <span className="w-2 h-2 bg-orange-400 inline-block rounded-full" /> Exit
+            <span className="w-1.5 h-3 bg-[#22c55e] inline-block" style={{ borderRight: "2px dashed #22c55e" }} /> Entry
+          </span>
+          <span className="flex items-center gap-1">
+            <span className="w-1.5 h-3 bg-orange-500 inline-block" style={{ borderRight: "2px dashed #f97316" }} /> Exit
           </span>
         </div>
       </div>
-      <ResponsiveContainer width="100%" height={260}>
+      <ResponsiveContainer width="100%" height={280}>
         <ComposedChart data={chartData} margin={{ top: 8, right: 8, bottom: 4, left: 8 }}>
           <defs>
             <linearGradient id={`bbFill-${symbol}`} x1="0" y1="0" x2="0" y2="1">
@@ -164,69 +167,81 @@ export default function BollingerTradeChart({ symbol, entryDate, exitDate, entry
             }}
           />
 
-          {/* Bollinger Band fill (upper to lower) */}
+          {/* Bollinger Band fill (upper band line with gradient) */}
           <Area
             type="monotone" dataKey="upperBand"
             stroke="transparent" fill={`url(#bbFill-${symbol})`}
-            connectNulls
+            connectNulls isAnimationActive={false}
           />
 
-          {/* Upper band */}
+          {/* Upper band (+2σ) */}
           <Line
             type="monotone" dataKey="upperBand"
             stroke="#60a5fa" strokeWidth={1} strokeDasharray="4 2"
-            dot={false} name="upperBand"
+            dot={false} name="upperBand" isAnimationActive={false}
           />
 
           {/* Lower band (-2σ) */}
           <Line
             type="monotone" dataKey="lowerBand"
             stroke="#60a5fa" strokeWidth={1} strokeDasharray="4 2"
-            dot={false} name="lowerBand"
+            dot={false} name="lowerBand" isAnimationActive={false}
           />
 
           {/* Stop band (-3σ) */}
           <Line
             type="monotone" dataKey="stopBand"
             stroke="#ef4444" strokeWidth={1} strokeDasharray="3 3"
-            strokeOpacity={0.6} dot={false} name="stopBand"
+            strokeOpacity={0.5} dot={false} name="stopBand" isAnimationActive={false}
           />
 
-          {/* 20-DMA (mean) */}
+          {/* 20-DMA (mean) — golden line */}
           <Line
             type="monotone" dataKey="ma"
-            stroke="#eab308" strokeWidth={1.5}
-            dot={false} name="ma"
+            stroke="#eab308" strokeWidth={2}
+            dot={false} name="ma" isAnimationActive={false}
           />
 
-          {/* Price line (close) */}
+          {/* Price line (close) — brighter for visibility */}
           <Line
             type="monotone" dataKey="close"
-            stroke="hsl(210, 14%, 70%)" strokeWidth={1.5}
-            dot={false} name="close"
+            stroke="#e2e8f0" strokeWidth={2}
+            dot={false} name="close" isAnimationActive={false}
           />
 
-          {/* High/Low wicks as thin lines */}
-          <Line type="monotone" dataKey="high" stroke="transparent" dot={false} name="high" />
-          <Line type="monotone" dataKey="low" stroke="transparent" dot={false} name="low" />
-
-          {/* Entry marker */}
-          <ReferenceLine
-            x={entryDate} stroke="#22c55e" strokeWidth={1.5} strokeDasharray="3 3"
-            label={{ value: `▲ Entry ₹${entryPrice.toFixed(0)}`, position: "insideBottomLeft", fontSize: 9, fill: "#22c55e", fontWeight: 600 }}
-          />
-
-          {/* Exit marker */}
-          <ReferenceLine
-            x={exitDate} stroke="#f97316" strokeWidth={1.5} strokeDasharray="3 3"
-            label={{ value: `▼ Exit ₹${exitPrice.toFixed(0)}`, position: "insideTopLeft", fontSize: 9, fill: "#f97316", fontWeight: 600 }}
-          />
+          {/* High/Low in tooltip only */}
+          <Line type="monotone" dataKey="high" stroke="transparent" dot={false} name="high" isAnimationActive={false} />
+          <Line type="monotone" dataKey="low" stroke="transparent" dot={false} name="low" isAnimationActive={false} />
 
           {/* Trade holding period shading */}
           <ReferenceArea
             x1={entryDate} x2={exitDate}
-            fill="#22c55e" fillOpacity={0.04}
-            stroke="transparent"
+            fill="#22c55e" fillOpacity={0.06}
+            stroke="#22c55e" strokeOpacity={0.15}
+          />
+
+          {/* Entry vertical marker */}
+          <ReferenceLine
+            x={entryDate} stroke="#22c55e" strokeWidth={2} strokeDasharray="4 3"
+            label={{ value: `▲ Entry ₹${entryPrice.toFixed(0)}`, position: "insideBottomRight", fontSize: 10, fill: "#22c55e", fontWeight: 700 }}
+          />
+
+          {/* Exit vertical marker */}
+          <ReferenceLine
+            x={exitDate} stroke="#f97316" strokeWidth={2} strokeDasharray="4 3"
+            label={{ value: `▼ Exit ₹${exitPrice.toFixed(0)}`, position: "insideTopRight", fontSize: 10, fill: "#f97316", fontWeight: 700 }}
+          />
+
+          {/* Entry price horizontal line */}
+          <ReferenceLine
+            y={entryPrice} stroke="#22c55e" strokeWidth={1} strokeDasharray="2 4"
+            strokeOpacity={0.4}
+          />
+
+          {/* Exit price horizontal line */}
+          <ReferenceLine
+            y={exitPrice} stroke="#f97316" strokeWidth={1} strokeDasharray="2 4"
+            strokeOpacity={0.4}
           />
         </ComposedChart>
       </ResponsiveContainer>
