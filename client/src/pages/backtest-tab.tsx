@@ -163,8 +163,11 @@ export default function BacktestTab() {
     queryClient.invalidateQueries({ queryKey: [`/api/backtest?runId=${runId}`] });
   };
 
+  const [runError, setRunError] = useState<string | null>(null);
+
   const handleRunBacktest = async () => {
     setIsRunning(true);
+    setRunError(null);
     try {
       const body: Record<string, unknown> = {
         name: formName || undefined,
@@ -189,6 +192,9 @@ export default function BacktestTab() {
       setFormName("");
       queryClient.invalidateQueries({ queryKey: [`/api/backtest/runs?strategyId=${strategyId}`] });
       queryClient.setQueryData([`/api/backtest?runId=${result.id}`], result);
+    } catch (err: any) {
+      console.error("Backtest error:", err);
+      setRunError(err.message || "Backtest failed. Check server logs.");
     } finally {
       setIsRunning(false);
     }
@@ -391,12 +397,17 @@ export default function BacktestTab() {
               )}
               <Button
                 variant="ghost" size="sm" className="h-8 text-xs"
-                onClick={() => setShowNewForm(false)}
+                onClick={() => { setShowNewForm(false); setRunError(null); }}
                 data-testid="button-cancel-form"
               >
                 Cancel
               </Button>
             </div>
+            {runError && (
+              <div className="text-xs text-red-400 bg-red-500/10 border border-red-500/20 rounded px-3 py-2" data-testid="run-error">
+                <span className="font-semibold">Error:</span> {runError}
+              </div>
+            )}
           </CardContent>
         </Card>
       )}

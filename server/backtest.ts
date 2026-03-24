@@ -236,7 +236,7 @@ export async function runBacktest(params: ATRBacktestParams): Promise<BacktestRe
     if (i + batchSize < NSE_UNIVERSE.length) await new Promise(r => setTimeout(r, useKite ? 80 : 120));
     if ((i + batchSize) % 100 === 0) console.log(`[Backtest] Fetched ${Math.min(i + batchSize, NSE_UNIVERSE.length)} / ${NSE_UNIVERSE.length}...`);
   }
-  console.log(`[Backtest] Data for ${allBars.size} stocks. Simulating ${YEARS} years...`);
+  console.log(`[Backtest] Data for ${allBars.size} stocks. Simulating ${yearsLabel} years...`);
 
   // ─── Build date index ───
   const allDates = new Set<string>();
