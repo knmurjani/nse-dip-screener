@@ -66,6 +66,31 @@ export const STRATEGIES: Record<string, StrategyDefinition> = {
       maxHoldDays: 10,
     },
   },
+
+  bollinger_mr: {
+    id: "bollinger_mr",
+    name: "Bollinger Mean Reversion",
+    shortName: "Boll MR",
+    description: "Classic Bollinger Band mean-reversion. Watchlist below −2σ, enter when price crosses above the 20-DMA (mean), exit at +2σ target or −2σ stop. No compounding — fixed position sizing.",
+    entryRules: [
+      "Calculate 20-day moving average and standard deviation",
+      "Watchlist: stock drops below −2σ band",
+      "Entry: stock crosses back above the 20-DMA (mean) — confirmed recovery",
+      "Entry price: the 20-DMA value at crossover",
+      "Fixed position size: Capital / Max Positions (no compounding)",
+    ],
+    exitRules: [
+      { name: "+2σ Target", description: "Close crosses above +2σ upper band — full reversion" },
+      { name: "−2σ Stop", description: "Close drops below −2σ lower band — cut loss" },
+    ],
+    parameters: {
+      maPeriod: 20,
+      entryBandSigma: 2,
+      targetBandSigma: 2,
+      stopLossSigma: 2,
+      maxHoldDays: 0, // 0 = no time exit
+    },
+  },
 };
 
 export function getStrategy(id: string): StrategyDefinition | undefined {

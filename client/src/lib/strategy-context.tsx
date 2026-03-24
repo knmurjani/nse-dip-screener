@@ -9,6 +9,7 @@ interface StrategyContextType {
 const STRATEGY_NAMES: Record<string, string> = {
   atr_dip_buyer: "ATR Dip Buyer",
   bollinger_bounce: "Bollinger Bounce",
+  bollinger_mr: "Bollinger Mean Reversion",
 };
 
 const StrategyContext = createContext<StrategyContextType>({

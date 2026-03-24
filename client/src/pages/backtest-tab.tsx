@@ -138,6 +138,11 @@ export default function BacktestTab() {
   const [formMaPeriod, setFormMaPeriod] = useState("20");
   const [formEntryBandSigma, setFormEntryBandSigma] = useState("2");
   const [formStopLossSigma, setFormStopLossSigma] = useState("3");
+  // Form state — Bollinger MR-specific
+  const [formTargetBandSigma, setFormTargetBandSigma] = useState("2");
+  const [formAllowParallel, setFormAllowParallel] = useState(false);
+
+  const isBollinger = strategyId === "bollinger_bounce" || strategyId === "bollinger_mr";
 
   // Fetch runs list — filtered by strategy
   const { data: runs } = useQuery<BacktestRunSummary[]>({
@@ -180,10 +185,14 @@ export default function BacktestTab() {
         absoluteStopPct: formAbsoluteStopPct ? Number(formAbsoluteStopPct) : undefined,
         trailingStopPct: formTrailingStopPct ? Number(formTrailingStopPct) : undefined,
       };
-      if (strategyId === "bollinger_bounce") {
+      if (strategyId === "bollinger_bounce" || strategyId === "bollinger_mr") {
         body.maPeriod = Number(formMaPeriod);
         body.entryBandSigma = Number(formEntryBandSigma);
         body.stopLossSigma = Number(formStopLossSigma);
+      }
+      if (strategyId === "bollinger_mr") {
+        body.targetBandSigma = Number(formTargetBandSigma);
+        body.allowParallelPositions = formAllowParallel;
       }
       const res = await apiRequest("POST", "/api/backtest/run", body);
       const result: BacktestResult = await res.json();
@@ -354,8 +363,8 @@ export default function BacktestTab() {
               </div>
             </div>
             {/* Row 3: Bollinger-specific params */}
-            {strategyId === "bollinger_bounce" && (
-              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 pt-2 border-t border-border">
+            {isBollinger && (
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-2 border-t border-border">
                 <div>
                   <label className="text-[10px] text-muted-foreground block mb-1">MA Period</label>
                   <Input
@@ -365,7 +374,7 @@ export default function BacktestTab() {
                   />
                 </div>
                 <div>
-                  <label className="text-[10px] text-muted-foreground block mb-1">Entry Band σ</label>
+                  <label className="text-[10px] text-muted-foreground block mb-1">Entry/Watchlist σ</label>
                   <Input
                     type="number" value={formEntryBandSigma} onChange={e => setFormEntryBandSigma(e.target.value)}
                     className="h-8 text-xs tabular-nums"
@@ -373,13 +382,37 @@ export default function BacktestTab() {
                   />
                 </div>
                 <div>
-                  <label className="text-[10px] text-muted-foreground block mb-1">Stop Loss Band σ</label>
+                  <label className="text-[10px] text-muted-foreground block mb-1">Stop Loss σ</label>
                   <Input
                     type="number" value={formStopLossSigma} onChange={e => setFormStopLossSigma(e.target.value)}
                     className="h-8 text-xs tabular-nums"
                     data-testid="input-stop-loss-sigma"
                   />
                 </div>
+                {strategyId === "bollinger_mr" && (
+                  <div>
+                    <label className="text-[10px] text-muted-foreground block mb-1">Target σ (exit)</label>
+                    <Input
+                      type="number" value={formTargetBandSigma} onChange={e => setFormTargetBandSigma(e.target.value)}
+                      className="h-8 text-xs tabular-nums"
+                      data-testid="input-target-band-sigma"
+                    />
+                  </div>
+                )}
+              </div>
+            )}
+            {/* Row 4: MR-specific — parallel positions */}
+            {strategyId === "bollinger_mr" && (
+              <div className="flex items-center gap-3 pt-2 border-t border-border">
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox" checked={formAllowParallel}
+                    onChange={e => setFormAllowParallel(e.target.checked)}
+                    className="h-4 w-4 rounded border-input accent-primary"
+                    data-testid="input-allow-parallel"
+                  />
+                  <span className="text-[11px] text-muted-foreground">Allow parallel positions (same stock can have multiple open trades)</span>
+                </label>
               </div>
             )}
             {/* Actions */}
@@ -458,7 +491,7 @@ export default function BacktestTab() {
                         </TableCell>
                         <TableCell className="py-2">
                           <Badge variant="outline" className="text-[10px]" data-testid={`strategy-badge-${i}`}>
-                            {r.strategy_id === "bollinger_bounce" ? "Bollinger" : "ATR Dip"}
+                            {r.strategy_id === "bollinger_mr" ? "Boll MR" : r.strategy_id === "bollinger_bounce" ? "Bollinger" : "ATR Dip"}
                           </Badge>
                         </TableCell>
                         <TableCell className="text-[11px] tabular-nums text-muted-foreground py-2">
@@ -760,7 +793,7 @@ export default function BacktestTab() {
                       <SortHead label="P&L %" field="pnlPct" current={sortField} dir={sortDir} onClick={() => handleSort("pnlPct")} align="right" />
                       <SortHead label="Days" field="daysHeld" current={sortField} dir={sortDir} onClick={() => handleSort("daysHeld")} align="right" />
                       <SortHead label="Exit Reason" field="exitReason" current={sortField} dir={sortDir} onClick={() => handleSort("exitReason")} align="right" />
-                      {strategyId === "bollinger_bounce" && (
+                      {strategyId === "bollinger_bounce" || strategyId === "bollinger_mr" && (
                         <TableHead className="text-[11px] text-center w-10">Chart</TableHead>
                       )}
                     </TableRow>
@@ -825,7 +858,7 @@ export default function BacktestTab() {
                             </p>
                           )}
                         </TableCell>
-                        {strategyId === "bollinger_bounce" && (
+                        {strategyId === "bollinger_bounce" || strategyId === "bollinger_mr" && (
                           <TableCell className="text-center py-2">
                             <button
                               className={`p-1 rounded hover:bg-muted/50 transition-colors ${
@@ -841,7 +874,7 @@ export default function BacktestTab() {
                         )}
                       </TableRow>
                       {/* Expanded Bollinger chart row */}
-                      {chartRow === i && strategyId === "bollinger_bounce" && (
+                      {chartRow === i && strategyId === "bollinger_bounce" || strategyId === "bollinger_mr" && (
                         <TableRow key={`chart-${t.id ?? i}`} data-testid={`chart-row-${i}`}>
                           <TableCell colSpan={11} className="p-0 bg-muted/10">
                             <BollingerTradeChart
@@ -933,7 +966,19 @@ function SortHead({ label, field, current, dir, onClick, align = "left" }: {
 
 function StrategyRulesCard({ strategyId }: { strategyId: string }) {
   const [open, setOpen] = useState(false);
-  const rules = strategyId === "bollinger_bounce" ? {
+  const rules = strategyId === "bollinger_mr" ? {
+    entry: [
+      "20-day MA + StdDev bands",
+      "Watchlist: close drops below \u22122\u03c3",
+      "Entry: close crosses back above the 20-DMA (mean)",
+      "Entry price = 20-DMA value at crossover",
+      "Fixed sizing: Capital / Max Positions (no compounding)",
+    ],
+    exit: [
+      { name: "+2\u03c3 Target", desc: "Close > upper +2\u03c3 band" },
+      { name: "\u22122\u03c3 Stop", desc: "Close < lower \u22122\u03c3 band" },
+    ],
+  } : strategyId === "bollinger_bounce" ? {
     entry: [
       "20-day MA + StdDev bands",
       "Watchlist when below \u22122\u03c3",

@@ -153,7 +153,7 @@ export default function Dashboard() {
   const { data: bollingerData, isLoading: bollingerLoading } = useQuery<BollingerResult>({
     queryKey: ["/api/bollinger/screener"],
     staleTime: 5 * 60 * 1000,
-    enabled: strategyId === "bollinger_bounce",
+    enabled: strategyId === "bollinger_bounce" || strategyId === "bollinger_mr",
   });
 
   const handleRefresh = async () => {
@@ -258,6 +258,7 @@ export default function Dashboard() {
               <SelectContent>
                 <SelectItem value="atr_dip_buyer" className="text-xs">ATR Dip Buyer</SelectItem>
                 <SelectItem value="bollinger_bounce" className="text-xs">Bollinger Bounce</SelectItem>
+                <SelectItem value="bollinger_mr" className="text-xs">Bollinger Mean Reversion</SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -302,7 +303,7 @@ export default function Dashboard() {
         <KiteStatusBanner />
 
         {/* KPI Cards — strategy-aware */}
-        {strategyId === "bollinger_bounce" ? (
+        {strategyId === "bollinger_bounce" || strategyId === "bollinger_mr" ? (
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
             <KPICard
               label="Universe"
@@ -421,7 +422,7 @@ export default function Dashboard() {
 
           {/* SIGNALS TAB */}
           <TabsContent value="signals" className="mt-4">
-            {strategyId === "bollinger_bounce" ? (
+            {strategyId === "bollinger_bounce" || strategyId === "bollinger_mr" ? (
               <BollingerSignals />
             ) : (
             <Card>
@@ -627,7 +628,7 @@ export default function Dashboard() {
 
           {/* UNIVERSE TAB — strategy-aware */}
           <TabsContent value="universe" className="mt-4">
-            {strategyId === "bollinger_bounce" ? (
+            {strategyId === "bollinger_bounce" || strategyId === "bollinger_mr" ? (
               <BollingerUniverse />
             ) : (
             <Card>

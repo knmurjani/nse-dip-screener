@@ -5,6 +5,7 @@ import { startScheduler } from "./scheduler";
 import { getLoginURL, generateSession, setAccessToken, isAuthenticated, getKite, getKiteStatus, markKiteFailed } from "./kite";
 import { getBacktestResult, clearBacktestCache, runBacktest } from "./backtest";
 import { runBollingerBacktest } from "./backtest-bollinger";
+import { runBollingerMRBacktest } from "./backtest-bollinger-mr";
 import Database from "better-sqlite3";
 import { logSystem, getSystemLogs, getChangelog } from "./storage";
 import { getFilterBreakdown, clearFilterBreakdownCache } from "./filter-breakdown";
@@ -167,13 +168,27 @@ export async function registerRoutes(
   // Run a new backtest and save it permanently
   app.post("/api/backtest/run", async (req, res) => {
     try {
-      const { name, capital, maxPositions, years, fromDate, toDate, strategyId, absoluteStopPct, trailingStopPct, maPeriod, entryBandSigma, stopLossSigma, maxHoldDays } = req.body;
+      const { name, capital, maxPositions, years, fromDate, toDate, strategyId, absoluteStopPct, trailingStopPct, maPeriod, entryBandSigma, stopLossSigma, targetBandSigma, maxHoldDays, allowParallelPositions } = req.body;
       const strategy = strategyId || "atr_dip_buyer";
 
       let result;
       const commonParams = { capitalRs: capital || 1000000, maxPositions: maxPositions || 10, lookbackYears: years || 5 };
 
-      if (strategy === "bollinger_bounce") {
+      if (strategy === "bollinger_mr") {
+        result = await runBollingerMRBacktest({
+          ...commonParams,
+          fromDate: fromDate || undefined,
+          toDate: toDate || undefined,
+          maPeriod: maPeriod || 20,
+          entryBandSigma: entryBandSigma || 2,
+          targetBandSigma: targetBandSigma || 2,
+          stopLossSigma: stopLossSigma || 2,
+          maxHoldDays: maxHoldDays || 0,
+          allowParallelPositions: allowParallelPositions || false,
+          absoluteStopPct: absoluteStopPct || undefined,
+          trailingStopPct: trailingStopPct || undefined,
+        });
+      } else if (strategy === "bollinger_bounce") {
         result = await runBollingerBacktest({
           ...commonParams,
           fromDate: fromDate || undefined,
@@ -197,7 +212,8 @@ export async function registerRoutes(
         });
       }
 
-      const autoName = name || `${strategy === "bollinger_bounce" ? "Bollinger" : "ATR Dip"} | ${result.period.from} → ${result.period.to} | ${commonParams.maxPositions} pos`;
+      const strategyLabels: Record<string, string> = { bollinger_mr: "Boll MR", bollinger_bounce: "Bollinger", atr_dip_buyer: "ATR Dip" };
+      const autoName = name || `${strategyLabels[strategy] || strategy} | ${result.period.from} → ${result.period.to} | ${commonParams.maxPositions} pos`;
       // IST timestamp
       const istNow = new Date(Date.now() + 5.5 * 60 * 60 * 1000);
       const now = istNow.toISOString().replace("T", " ").split(".")[0] + " IST";

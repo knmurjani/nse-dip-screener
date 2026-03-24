@@ -271,6 +271,22 @@ function seedChangelog() {
     "Configurable max hold days (was hardcoded to 10)",
     "Both stops integrate with existing profit target + price action exits",
   ]);
+  addChangelogEntry("2.5.0", "2026-03-24", "system", "Bollinger Mean Reversion Strategy", [
+    "New strategy: Bollinger Mean Reversion (matches original Python backtest)",
+    "3 strategies now available: ATR Dip Buyer, Bollinger Bounce, Bollinger MR",
+    "Configurable parallel positions (same stock can have multiple open trades)",
+  ]);
+  addChangelogEntry("2.5.0", "2026-03-24", "bollinger_mr", "Bollinger Mean Reversion Added", [
+    "Watchlist: close drops below −2σ band",
+    "Entry: close crosses back above the 20-DMA (mean) — confirmed recovery",
+    "Entry price: the 20-DMA value (not close price)",
+    "Exit target: close > +2σ upper band (full reversion)",
+    "Exit stop: close < −2σ lower band (cut loss)",
+    "No time exit by default (configurable)",
+    "Fixed position sizing: Capital / Max Positions (no compounding)",
+    "Allow parallel positions toggle (same ticker multiple open trades)",
+    "Per-trade Bollinger Band charts shared with Bollinger Bounce",
+  ]);
 }
 seedChangelog();
 
