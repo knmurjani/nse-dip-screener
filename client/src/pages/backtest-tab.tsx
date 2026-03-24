@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -144,24 +144,32 @@ export default function BacktestTab() {
 
   const isBollinger = strategyId === "bollinger_bounce" || strategyId === "bollinger_mr";
 
+  // Reset selection when strategy changes so we don't show stale data from another strategy
+  useEffect(() => {
+    setSelectedRunId("");
+    setShowNewForm(false);
+    setChartRow(null);
+    setExpandedRow(null);
+  }, [strategyId]);
+
   // Fetch runs list — filtered by strategy
   const { data: runs } = useQuery<BacktestRunSummary[]>({
     queryKey: [`/api/backtest/runs?strategyId=${strategyId}`],
     staleTime: 30000,
   });
 
-  // Fetch selected or latest run
-  const runQueryKey = selectedRunId
-    ? `/api/backtest?runId=${selectedRunId}`
-    : "/api/backtest";
+  // Fetch selected run or latest for this strategy
+  const latestRunId = (runs && runs.length > 0) ? String(runs[0].id) : "";
+  const effectiveRunId = selectedRunId || latestRunId;
 
   const { data, isLoading } = useQuery<BacktestResult>({
-    queryKey: [runQueryKey],
-    staleTime: Infinity,
+    queryKey: [`/api/backtest?runId=${effectiveRunId}`],
+    enabled: !!effectiveRunId,
+    staleTime: 60000,
   });
 
   // Sync dropdown to loaded data
-  const activeRunId = data?.id ? String(data.id) : selectedRunId;
+  const activeRunId = data?.id ? String(data.id) : effectiveRunId;
 
   const handleSelectRun = (runId: string) => {
     setSelectedRunId(runId);
