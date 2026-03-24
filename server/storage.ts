@@ -1,8 +1,19 @@
 import { drizzle } from "drizzle-orm/better-sqlite3";
 import Database from "better-sqlite3";
 import { liveSignals, livePositions, liveTrades, liveSnapshots, liveConfig } from "@shared/schema";
+import path from "path";
+import fs from "fs";
 
-const sqlite = new Database("data.db");
+// Use Railway volume if available, otherwise write to current directory
+const volumePath = process.env.RAILWAY_VOLUME_MOUNT_PATH;
+const dbDir = volumePath || ".";
+if (volumePath && !fs.existsSync(volumePath)) {
+  fs.mkdirSync(volumePath, { recursive: true });
+}
+export const DB_PATH = path.join(dbDir, "data.db");
+console.log(`[DB] Using database at: ${DB_PATH} (volume: ${volumePath ? 'yes' : 'no'})`);
+
+const sqlite = new Database(DB_PATH);
 sqlite.pragma("journal_mode = WAL");
 
 export const db = drizzle(sqlite);

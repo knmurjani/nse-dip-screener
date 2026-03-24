@@ -7,7 +7,7 @@ import { getBacktestResult, clearBacktestCache, runBacktest } from "./backtest";
 import { runBollingerBacktest } from "./backtest-bollinger";
 import { runBollingerMRBacktest } from "./backtest-bollinger-mr";
 import Database from "better-sqlite3";
-import { logSystem, getSystemLogs, getChangelog } from "./storage";
+import { logSystem, getSystemLogs, getChangelog, DB_PATH } from "./storage";
 import { getFilterBreakdown, clearFilterBreakdownCache } from "./filter-breakdown";
 import { getPortfolioSummary, runDailyLifecycle } from "./live-portfolio";
 import { runBollingerScreener, clearBollingerCache } from "./screener-bollinger";
@@ -115,7 +115,7 @@ export async function registerRoutes(
   app.get("/api/backtest", async (req, res) => {
     try {
       const runId = req.query.runId as string;
-      const sqlite = new Database("data.db");
+      const sqlite = new Database(DB_PATH);
       
       if (runId) {
         const row = sqlite.prepare("SELECT * FROM backtest_runs WHERE id = ?").get(parseInt(runId)) as any;
@@ -153,7 +153,7 @@ export async function registerRoutes(
   // List all saved backtest runs (summary only)
   app.get("/api/backtest/runs", (req, res) => {
     try {
-      const sqlite = new Database("data.db");
+      const sqlite = new Database(DB_PATH);
       const strategyFilter = req.query.strategyId as string;
       let query = "SELECT id, name, strategy_id, created_at, period_from, period_to, capital, max_positions, universe_size, universe_label, total_trades, annualized_return_pct, total_return_pct, win_rate, sharpe_ratio, max_drawdown_pct, data_source, params_json FROM backtest_runs";
       if (strategyFilter) query += ` WHERE strategy_id = '${strategyFilter.replace(/'/g, '')}'`;
@@ -225,7 +225,7 @@ export async function registerRoutes(
         exitRules: strategyDef?.exitRules || [],
       };
 
-      const sqlite = new Database("data.db");
+      const sqlite = new Database(DB_PATH);
       const stmt = sqlite.prepare(`
         INSERT INTO backtest_runs (name, strategy_id, created_at, period_from, period_to, capital, max_positions, universe_size, universe_label, total_trades, annualized_return_pct, total_return_pct, win_rate, sharpe_ratio, max_drawdown_pct, data_source, params_json, summary_json, trades_json, snapshots_json)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -254,7 +254,7 @@ export async function registerRoutes(
   // Delete a backtest run
   app.delete("/api/backtest/runs/:id", (req, res) => {
     try {
-      const sqlite = new Database("data.db");
+      const sqlite = new Database(DB_PATH);
       sqlite.prepare("DELETE FROM backtest_runs WHERE id = ?").run(parseInt(req.params.id));
       res.json({ success: true });
     } catch (error: any) {
