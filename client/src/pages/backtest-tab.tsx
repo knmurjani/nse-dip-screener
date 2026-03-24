@@ -18,8 +18,10 @@ import {
   RefreshCw, TrendingUp, Trophy, AlertTriangle, Target, BarChart3,
   ArrowUpDown, ArrowUp, ArrowDown, Activity, Percent, Zap, Info,
   Plus, Trash2, Loader2, ChevronDown, ChevronUp, Play, Crosshair, Clock,
+  LineChart as LineChartIcon,
 } from "lucide-react";
 import { useStrategy } from "@/lib/strategy-context";
+import BollingerTradeChart from "@/components/bollinger-trade-chart";
 
 // ─── Types ───
 
@@ -113,6 +115,7 @@ export default function BacktestTab() {
   const [sortField, setSortField] = useState<SortField>("entryDate");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
   const [expandedRow, setExpandedRow] = useState<number | null>(null);
+  const [chartRow, setChartRow] = useState<number | null>(null);
   const [selectedRunId, setSelectedRunId] = useState<string>("");
   const [showNewForm, setShowNewForm] = useState(false);
   const [isRunning, setIsRunning] = useState(false);
@@ -746,10 +749,14 @@ export default function BacktestTab() {
                       <SortHead label="P&L %" field="pnlPct" current={sortField} dir={sortDir} onClick={() => handleSort("pnlPct")} align="right" />
                       <SortHead label="Days" field="daysHeld" current={sortField} dir={sortDir} onClick={() => handleSort("daysHeld")} align="right" />
                       <SortHead label="Exit Reason" field="exitReason" current={sortField} dir={sortDir} onClick={() => handleSort("exitReason")} align="right" />
+                      {strategyId === "bollinger_bounce" && (
+                        <TableHead className="text-[11px] text-center w-10">Chart</TableHead>
+                      )}
                     </TableRow>
                   </TableHeader>
                   <TableBody>
                     {sortedTrades.map((t, i) => (
+                      <>
                       <TableRow key={t.id ?? i} data-testid={`row-trade-${i}`}>
                         <TableCell className="text-right text-[11px] text-muted-foreground tabular-nums py-2 pl-4">
                           {i + 1}
@@ -807,7 +814,37 @@ export default function BacktestTab() {
                             </p>
                           )}
                         </TableCell>
+                        {strategyId === "bollinger_bounce" && (
+                          <TableCell className="text-center py-2">
+                            <button
+                              className={`p-1 rounded hover:bg-muted/50 transition-colors ${
+                                chartRow === i ? "text-primary bg-primary/10" : "text-muted-foreground"
+                              }`}
+                              onClick={() => setChartRow(chartRow === i ? null : i)}
+                              data-testid={`chart-toggle-${i}`}
+                              title="Toggle Bollinger Band chart"
+                            >
+                              <LineChartIcon className="w-3.5 h-3.5" />
+                            </button>
+                          </TableCell>
+                        )}
                       </TableRow>
+                      {/* Expanded Bollinger chart row */}
+                      {chartRow === i && strategyId === "bollinger_bounce" && (
+                        <TableRow key={`chart-${t.id ?? i}`} data-testid={`chart-row-${i}`}>
+                          <TableCell colSpan={11} className="p-0 bg-muted/10">
+                            <BollingerTradeChart
+                              symbol={t.symbol}
+                              entryDate={t.entryDate}
+                              exitDate={t.exitDate}
+                              entryPrice={t.entryPrice}
+                              exitPrice={t.exitPrice}
+                              exitReason={t.exitReason}
+                            />
+                          </TableCell>
+                        </TableRow>
+                      )}
+                      </>
                     ))}
                   </TableBody>
                 </Table>

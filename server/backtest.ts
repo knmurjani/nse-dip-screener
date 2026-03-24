@@ -169,33 +169,55 @@ function pearsonCorrelation(x: number[], y: number[]): number {
 
 // ─── Backtest Engine ───
 
+export interface ATRBacktestParams {
+  capitalRs?: number;
+  maxPositions?: number;
+  lookbackYears?: number;
+  fromDate?: string;         // YYYY-MM-DD, takes precedence over lookbackYears
+  toDate?: string;           // YYYY-MM-DD, defaults to today
+  maxHoldDays?: number;      // default 10
+  absoluteStopPct?: number;  // e.g. 5 means -5% absolute stop from entry
+  trailingStopPct?: number;  // e.g. 3 means -3% trailing stop from peak
+}
+
 interface OpenPosition {
   id: number; symbol: string; name: string; signalDate: string; entryDate: string;
   entryPrice: number; shares: number; capitalAllocated: number;
   setupScore: number; atr5: number; tradingDaysHeld: number; profitTarget: number;
+  peakPrice: number; // for trailing stop
   portfolioValueAtEntry: number;
 }
 
-export async function runBacktest(params: {
-  capitalRs?: number; maxPositions?: number; lookbackYears?: number;
-}): Promise<BacktestResult> {
+export async function runBacktest(params: ATRBacktestParams): Promise<BacktestResult> {
   const CAPITAL = params.capitalRs || 1000000;
   const MAX_POS = params.maxPositions || 10;
-  const YEARS = params.lookbackYears || 5;
+  const MAX_HOLD = params.maxHoldDays || 10;
+  const ABS_STOP = params.absoluteStopPct;   // undefined = disabled
+  const TRAIL_STOP = params.trailingStopPct; // undefined = disabled
 
-  const toDate = new Date();
-  const fromDate = new Date();
-  fromDate.setFullYear(fromDate.getFullYear() - YEARS - 1); // extra year for 200-DMA warmup
+  // Determine backtest period — fromDate/toDate take precedence over lookbackYears
+  let toDate: Date;
+  let backtestStart: Date;
+  if (params.fromDate && params.toDate) {
+    backtestStart = new Date(params.fromDate);
+    toDate = new Date(params.toDate);
+  } else {
+    const YEARS = params.lookbackYears || 5;
+    toDate = new Date();
+    backtestStart = new Date();
+    backtestStart.setFullYear(backtestStart.getFullYear() - YEARS);
+  }
+
+  const fromDate = new Date(backtestStart);
+  fromDate.setDate(fromDate.getDate() - 320); // extra ~1 year for 200-DMA warmup
 
   const from = fromDate.toISOString().split("T")[0];
   const to = toDate.toISOString().split("T")[0];
-
-  const backtestStart = new Date();
-  backtestStart.setFullYear(backtestStart.getFullYear() - YEARS);
   const startStr = backtestStart.toISOString().split("T")[0];
 
+  const yearsLabel = ((toDate.getTime() - backtestStart.getTime()) / (365.25 * 86400000)).toFixed(1);
   const useKite = isAuthenticated();
-  console.log(`[Backtest] ${YEARS}yr, ₹${(CAPITAL/1e5).toFixed(0)}L, ${MAX_POS} max pos, via ${useKite ? "Kite" : "Yahoo"}`);
+  console.log(`[Backtest] ${yearsLabel}yr (${startStr} → ${to}), ₹${(CAPITAL/1e5).toFixed(0)}L, ${MAX_POS} max pos, hold ${MAX_HOLD}d, absStop=${ABS_STOP ?? 'off'}, trailStop=${TRAIL_STOP ?? 'off'}, via ${useKite ? "Kite" : "Yahoo"}`);
 
   // ─── Fetch Nifty 50 for correlation ───
   const niftyBars = await fetchBars("^NSEI", from, to) || await fetchBars("NIFTY_50.NS", from, to) || [];
@@ -268,6 +290,7 @@ export async function runBacktest(params: {
       const bar = bars[todayIdx];
       const prevBar = todayIdx > 0 ? bars[todayIdx - 1] : null;
       pos.tradingDaysHeld++;
+      pos.peakPrice = Math.max(pos.peakPrice, bar.high);
 
       let exitPrice = 0;
       let exitReason: Trade["exitReason"] | null = null;
@@ -287,11 +310,31 @@ export async function runBacktest(params: {
         exitReasonDetail = `Close ₹${bar.close.toFixed(2)} > Prev High ₹${prevBar.high.toFixed(2)} — rebound confirmed`;
       }
 
-      // Exit 3: Time-based — 10 trading days
-      if (!exitReason && pos.tradingDaysHeld >= 10) {
+      // Exit 3: Absolute stop loss (if configured)
+      if (!exitReason && ABS_STOP) {
+        const absStopPrice = pos.entryPrice * (1 - ABS_STOP / 100);
+        if (bar.low <= absStopPrice) {
+          exitPrice = absStopPrice;
+          exitReason = "price_action_close_above_prev_high";
+          exitReasonDetail = `🛑 ABS STOP: Low ₹${bar.low.toFixed(2)} ≤ −${ABS_STOP}% from entry = ₹${absStopPrice.toFixed(2)}`;
+        }
+      }
+
+      // Exit 4: Trailing stop (if configured)
+      if (!exitReason && TRAIL_STOP) {
+        const trailStopPrice = pos.peakPrice * (1 - TRAIL_STOP / 100);
+        if (bar.low <= trailStopPrice) {
+          exitPrice = trailStopPrice;
+          exitReason = "price_action_close_above_prev_high";
+          exitReasonDetail = `🛑 TRAIL STOP: Low ₹${bar.low.toFixed(2)} ≤ −${TRAIL_STOP}% from peak ₹${pos.peakPrice.toFixed(2)} = ₹${trailStopPrice.toFixed(2)}`;
+        }
+      }
+
+      // Exit 5: Time-based — configurable max hold days
+      if (!exitReason && pos.tradingDaysHeld >= MAX_HOLD) {
         exitPrice = bar.close;
         exitReason = "time_exit_10_days";
-        exitReasonDetail = `Held ${pos.tradingDaysHeld} trading days ≥ 10 day limit — forced exit at close ₹${bar.close.toFixed(2)}`;
+        exitReasonDetail = `Held ${pos.tradingDaysHeld} trading days ≥ ${MAX_HOLD} day limit — forced exit at close ₹${bar.close.toFixed(2)}`;
       }
 
       if (exitReason) {
@@ -413,6 +456,7 @@ export async function runBacktest(params: {
             atr5: cand.atr5,
             tradingDaysHeld: 0,
             profitTarget: cand.profitTarget,
+            peakPrice: entryPrice,
             portfolioValueAtEntry: currentPortfolio,
           });
         }
@@ -573,7 +617,7 @@ export async function runBacktest(params: {
     dataSource: useKite ? "Kite Connect" : "Yahoo Finance",
   };
 
-  console.log(`[Backtest] ${YEARS}yr complete: ${trades.length} trades, ${summary.totalReturnPct}% return, ${summary.winningPct}% win rate, ${summary.annualizedReturnPct}% annualized`);
+  console.log(`[Backtest] ${yearsLabel}yr complete: ${trades.length} trades, ${summary.totalReturnPct}% return, ${summary.winningPct}% win rate, ${summary.annualizedReturnPct}% annualized`);
 
   return {
     trades: trades.sort((a, b) => a.entryDate.localeCompare(b.entryDate)),

@@ -6,7 +6,7 @@ import { getLoginURL, generateSession, setAccessToken, isAuthenticated, getKite,
 import { getBacktestResult, clearBacktestCache, runBacktest } from "./backtest";
 import { runBollingerBacktest } from "./backtest-bollinger";
 import Database from "better-sqlite3";
-import { logSystem, getSystemLogs } from "./storage";
+import { logSystem, getSystemLogs, getChangelog } from "./storage";
 import { getFilterBreakdown, clearFilterBreakdownCache } from "./filter-breakdown";
 import { getPortfolioSummary, runDailyLifecycle } from "./live-portfolio";
 import { runBollingerScreener, clearBollingerCache } from "./screener-bollinger";
@@ -176,6 +176,8 @@ export async function registerRoutes(
       if (strategy === "bollinger_bounce") {
         result = await runBollingerBacktest({
           ...commonParams,
+          fromDate: fromDate || undefined,
+          toDate: toDate || undefined,
           maPeriod: maPeriod || 20,
           entryBandSigma: entryBandSigma || 2,
           stopLossSigma: stopLossSigma || 3,
@@ -185,7 +187,14 @@ export async function registerRoutes(
         });
       } else {
         clearBacktestCache();
-        result = await runBacktest(commonParams);
+        result = await runBacktest({
+          ...commonParams,
+          fromDate: fromDate || undefined,
+          toDate: toDate || undefined,
+          maxHoldDays: maxHoldDays || 10,
+          absoluteStopPct: absoluteStopPct || undefined,
+          trailingStopPct: trailingStopPct || undefined,
+        });
       }
 
       const autoName = name || `${strategy === "bollinger_bounce" ? "Bollinger" : "ATR Dip"} | ${result.period.from} → ${result.period.to} | ${commonParams.maxPositions} pos`;
@@ -275,6 +284,125 @@ export async function registerRoutes(
   app.get("/api/system/logs", (req, res) => {
     const limit = parseInt(req.query.limit as string) || 100;
     res.json(getSystemLogs(limit));
+  });
+
+  // ─── Per-trade chart data (Bollinger Bands + OHLC around trade window) ───
+
+  app.get("/api/trade-chart", async (req, res) => {
+    try {
+      const symbol = req.query.symbol as string; // e.g., "RELIANCE.NS"
+      const entryDate = req.query.entryDate as string;
+      const exitDate = req.query.exitDate as string;
+      const maPeriod = parseInt(req.query.maPeriod as string) || 20;
+      const sigma = parseFloat(req.query.sigma as string) || 2;
+      const stopSigma = parseFloat(req.query.stopSigma as string) || 3;
+
+      if (!symbol || !entryDate || !exitDate) {
+        return res.status(400).json({ error: "symbol, entryDate, exitDate required" });
+      }
+
+      // Fetch bars with extra buffer before entry for MA warmup + context
+      const fromD = new Date(entryDate);
+      fromD.setDate(fromD.getDate() - (maPeriod + 40)); // extra buffer for MA warmup + visual context
+      const toD = new Date(exitDate);
+      toD.setDate(toD.getDate() + 10); // show a bit after exit
+      const from = fromD.toISOString().split("T")[0];
+      const to = toD.toISOString().split("T")[0];
+
+      // Reuse backtest's fetchBars pattern inline
+      let bars: { date: string; open: number; high: number; low: number; close: number }[] = [];
+
+      if (isAuthenticated()) {
+        try {
+          const kite = getKite();
+          const instruments = await kite.getInstruments("NSE");
+          const clean = symbol.replace(".NS", "");
+          const inst = instruments.find((i: any) => i.tradingsymbol === clean && i.segment === "NSE" && i.instrument_type === "EQ");
+          if (inst) {
+            const data = await kite.getHistoricalData(inst.instrument_token, "day", from, to);
+            if (data && data.length > 0) {
+              bars = data.filter((d: any) => d.close > 0).map((d: any) => ({
+                date: new Date(d.date).toISOString().split("T")[0],
+                open: d.open, high: d.high, low: d.low, close: d.close,
+              }));
+            }
+          }
+        } catch {}
+      }
+
+      if (bars.length === 0) {
+        // Yahoo Finance fallback
+        const yfRaw = require("yahoo-finance2");
+        const YFClass = yfRaw.default || yfRaw;
+        const yf = typeof YFClass === "function" ? new YFClass({ suppressNotices: ["yahooSurvey", "ripHistorical"] }) : YFClass;
+        try {
+          const result = await yf.chart(symbol, { period1: new Date(from), period2: new Date(to), interval: "1d" });
+          if (result?.quotes) {
+            bars = result.quotes.filter((q: any) => q.close && q.close > 0)
+              .map((q: any) => ({
+                date: new Date(q.date).toISOString().split("T")[0],
+                open: q.open ?? q.close, high: q.high ?? q.close, low: q.low ?? q.close, close: q.close,
+              }));
+          }
+        } catch {}
+      }
+
+      if (bars.length < maPeriod + 5) {
+        return res.json({ bars: [], bands: [], entryDate, exitDate });
+      }
+
+      // Compute Bollinger Bands for each bar
+      const bandData: {
+        date: string; close: number; open: number; high: number; low: number;
+        ma: number; upperBand: number; lowerBand: number; stopBand: number;
+      }[] = [];
+
+      for (let i = 0; i < bars.length; i++) {
+        if (i < maPeriod - 1) continue;
+        let sum = 0;
+        for (let j = i - maPeriod + 1; j <= i; j++) sum += bars[j].close;
+        const ma = sum / maPeriod;
+        let sumSq = 0;
+        for (let j = i - maPeriod + 1; j <= i; j++) sumSq += (bars[j].close - ma) ** 2;
+        const std = Math.sqrt(sumSq / maPeriod);
+
+        bandData.push({
+          date: bars[i].date,
+          close: Math.round(bars[i].close * 100) / 100,
+          open: Math.round(bars[i].open * 100) / 100,
+          high: Math.round(bars[i].high * 100) / 100,
+          low: Math.round(bars[i].low * 100) / 100,
+          ma: Math.round(ma * 100) / 100,
+          upperBand: Math.round((ma + sigma * std) * 100) / 100,
+          lowerBand: Math.round((ma - sigma * std) * 100) / 100,
+          stopBand: Math.round((ma - stopSigma * std) * 100) / 100,
+        });
+      }
+
+      // Trim to show ~15 bars before entry through ~5 bars after exit for visual context
+      const entryIdx = bandData.findIndex(b => b.date >= entryDate);
+      const exitIdx = bandData.findIndex(b => b.date >= exitDate);
+      const startIdx = Math.max(0, (entryIdx >= 0 ? entryIdx : 0) - 15);
+      const endIdx = Math.min(bandData.length, (exitIdx >= 0 ? exitIdx : bandData.length) + 6);
+
+      res.json({
+        data: bandData.slice(startIdx, endIdx),
+        entryDate,
+        exitDate,
+        symbol: symbol.replace(".NS", ""),
+      });
+    } catch (error: any) {
+      console.error("[API] Trade chart error:", error.message);
+      res.status(500).json({ error: "Failed to fetch chart data", message: error.message });
+    }
+  });
+
+  // ─── Changelog ───
+
+  app.get("/api/changelog", (req, res) => {
+    const scope = req.query.scope as string | undefined;
+    const limit = parseInt(req.query.limit as string) || 50;
+    res.json(getChangelog(scope || undefined, limit));
   });
 
   // ─── Live Portfolio ───

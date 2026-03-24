@@ -82,6 +82,8 @@ export interface BollingerBacktestParams {
   capitalRs?: number;
   maxPositions?: number;
   lookbackYears?: number;
+  fromDate?: string;         // YYYY-MM-DD, takes precedence over lookbackYears
+  toDate?: string;           // YYYY-MM-DD, defaults to today
   maPeriod?: number;        // default 20
   entryBandSigma?: number;  // default 2
   stopLossSigma?: number;   // default 3
@@ -102,7 +104,6 @@ interface OpenPosition {
 export async function runBollingerBacktest(params: BollingerBacktestParams): Promise<BacktestResult> {
   const CAPITAL = params.capitalRs || 1000000;
   const MAX_POS = params.maxPositions || 10;
-  const YEARS = params.lookbackYears || 5;
   const MA_PERIOD = params.maPeriod || 20;
   const ENTRY_SIGMA = params.entryBandSigma || 2;
   const STOP_SIGMA = params.stopLossSigma || 3;
@@ -110,17 +111,28 @@ export async function runBollingerBacktest(params: BollingerBacktestParams): Pro
   const ABS_STOP = params.absoluteStopPct; // undefined = disabled
   const TRAIL_STOP = params.trailingStopPct; // undefined = disabled
 
-  const toDate = new Date();
-  const fromDate = new Date();
-  fromDate.setFullYear(fromDate.getFullYear() - YEARS - 1);
+  // Determine backtest period — fromDate/toDate take precedence over lookbackYears
+  let toDate: Date;
+  let backtestStart: Date;
+  if (params.fromDate && params.toDate) {
+    backtestStart = new Date(params.fromDate);
+    toDate = new Date(params.toDate);
+  } else {
+    const YEARS = params.lookbackYears || 5;
+    toDate = new Date();
+    backtestStart = new Date();
+    backtestStart.setFullYear(backtestStart.getFullYear() - YEARS);
+  }
+
+  const fromDate = new Date(backtestStart);
+  fromDate.setDate(fromDate.getDate() - 120); // extra warmup for MA period
   const from = fromDate.toISOString().split("T")[0];
   const to = toDate.toISOString().split("T")[0];
-  const backtestStart = new Date();
-  backtestStart.setFullYear(backtestStart.getFullYear() - YEARS);
   const startStr = backtestStart.toISOString().split("T")[0];
 
+  const yearsLabel = ((toDate.getTime() - backtestStart.getTime()) / (365.25 * 86400000)).toFixed(1);
   const useKite = isAuthenticated();
-  console.log(`[BollingerBT] ${YEARS}yr, ₹${(CAPITAL/1e5).toFixed(0)}L, ${MAX_POS} pos, ${MA_PERIOD}MA, ±${ENTRY_SIGMA}σ entry, -${STOP_SIGMA}σ stop`);
+  console.log(`[BollingerBT] ${yearsLabel}yr (${startStr} → ${to}), ₹${(CAPITAL/1e5).toFixed(0)}L, ${MAX_POS} pos, ${MA_PERIOD}MA, ±${ENTRY_SIGMA}σ entry, -${STOP_SIGMA}σ stop`);
 
   // Fetch Nifty 50
   const niftyBars = await fetchBars("^NSEI", from, to) || [];
@@ -454,7 +466,7 @@ export async function runBollingerBacktest(params: BollingerBacktestParams): Pro
     dataSource: useKite ? "Kite Connect" : "Yahoo Finance",
   };
 
-  console.log(`[BollingerBT] ${YEARS}yr: ${trades.length} trades, ${summary.totalReturnPct}% return, ${summary.winningPct}% win, ${summary.annualizedReturnPct}% ann.`);
+  console.log(`[BollingerBT] ${yearsLabel}yr: ${trades.length} trades, ${summary.totalReturnPct}% return, ${summary.winningPct}% win, ${summary.annualizedReturnPct}% ann.`);
 
   return {
     trades: trades.sort((a, b) => a.entryDate.localeCompare(b.entryDate)),
