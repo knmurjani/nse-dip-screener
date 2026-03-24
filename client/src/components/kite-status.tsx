@@ -84,12 +84,19 @@ export function ZerodhaTab() {
     setSubmitting(false);
   };
 
+  const [disconnecting, setDisconnecting] = useState(false);
+
   const handleDisconnect = async () => {
+    setDisconnecting(true);
     try {
-      await apiRequest("POST", "/api/kite/token", { access_token: "" });
+      await apiRequest("POST", "/api/kite/disconnect");
       queryClient.invalidateQueries({ queryKey: ["/api/kite/status"] });
-      setMessage("Disconnected from Kite");
-    } catch {}
+      queryClient.invalidateQueries({ queryKey: ["/api/screener"] });
+      setMessage("Disconnected — now using Yahoo Finance");
+    } catch (e: any) {
+      setMessage(`Disconnect failed: ${e.message}`);
+    }
+    setDisconnecting(false);
   };
 
   const isConnected = status?.connected;
@@ -129,10 +136,11 @@ export function ZerodhaTab() {
                   variant="outline"
                   size="sm"
                   onClick={handleDisconnect}
-                  className="h-8 text-xs gap-1 text-muted-foreground"
+                  disabled={disconnecting}
+                  className="h-8 text-xs gap-1 text-muted-foreground hover:text-red-400 hover:border-red-400/30"
                   data-testid="button-disconnect-kite"
                 >
-                  <Unplug className="w-3 h-3" />
+                  {disconnecting ? <RefreshCw className="w-3 h-3 animate-spin" /> : <Unplug className="w-3 h-3" />}
                   Disconnect
                 </Button>
               )}

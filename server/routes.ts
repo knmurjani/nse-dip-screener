@@ -2,7 +2,7 @@ import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { runScreener, clearCache } from "./screener";
 import { startScheduler } from "./scheduler";
-import { getLoginURL, generateSession, setAccessToken, isAuthenticated, getKite, getKiteStatus } from "./kite";
+import { getLoginURL, generateSession, setAccessToken, isAuthenticated, getKite, getKiteStatus, markKiteFailed } from "./kite";
 import { getBacktestResult, clearBacktestCache } from "./backtest";
 import { getFilterBreakdown, clearFilterBreakdownCache } from "./filter-breakdown";
 import { getPortfolioSummary, runDailyLifecycle } from "./live-portfolio";
@@ -54,6 +54,14 @@ export async function registerRoutes(
     setAccessToken(access_token);
     clearCache();
     res.json({ success: true });
+  });
+
+  // Disconnect Kite
+  app.post("/api/kite/disconnect", (_req, res) => {
+    markKiteFailed("Manually disconnected");
+    clearCache();
+    console.log("[Kite] Manually disconnected by user");
+    res.json({ success: true, message: "Disconnected from Kite" });
   });
 
   // Kite redirect handler (after login)
