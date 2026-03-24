@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -45,11 +45,11 @@ export default function FiltersTab() {
   });
 
   // Set defaults when data loads
-  useMemo(() => {
-    if (data && !selectedDate && data.dates.length > 0) {
+  useEffect(() => {
+    if (data && data.dates.length > 0 && !selectedDate) {
       setSelectedDate(data.dates[data.dates.length - 1]);
     }
-    if (data && !selectedStock && data.stocks.length > 0) {
+    if (data && data.stocks.length > 0 && !selectedStock) {
       setSelectedStock(data.stocks[0]);
     }
   }, [data]);
@@ -147,8 +147,12 @@ export default function FiltersTab() {
           {/* Table */}
           <Card>
             <CardContent className="px-0 pb-0 pt-0">
-              {isLoading ? (
-                <div className="p-6 text-center text-sm text-muted-foreground">Loading filter data (this takes ~30 seconds on first load)...</div>
+              {isLoading || !data || data.data.length === 0 ? (
+                <div className="p-8 text-center">
+                  <Filter className="w-8 h-8 mx-auto text-muted-foreground/30 mb-3 animate-pulse" />
+                  <p className="text-sm text-muted-foreground">Loading filter data for 190 stocks...</p>
+                  <p className="text-[11px] text-muted-foreground mt-1">First load takes 30-40 seconds</p>
+                </div>
               ) : (
                 <div className="overflow-x-auto max-h-[500px] overflow-y-auto">
                   <Table>
