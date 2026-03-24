@@ -1,5 +1,5 @@
 import { NSE_UNIVERSE } from "./nse-universe";
-import { getKite, isAuthenticated } from "./kite";
+import { getKite, isAuthenticated, markKiteFailed } from "./kite";
 import type { ScreenerStock, UniverseStock } from "@shared/schema";
 
 // Fallback: Yahoo Finance (when Kite not authenticated)
@@ -28,6 +28,7 @@ async function loadInstruments() {
     console.log(`[Kite] Loaded ${instrumentMap.size} NSE equity instruments`);
   } catch (e: any) {
     console.error("[Kite] Failed to load instruments:", e.message);
+    markKiteFailed();
   }
 }
 
@@ -164,8 +165,10 @@ async function fetchQuoteYahoo(symbol: string): Promise<{
 
 async function fetchBars(symbol: string): Promise<Bar[] | null> {
   if (isAuthenticated() && instrumentsLoaded) {
-    const bars = await fetchBarsKite(symbol);
-    if (bars) return bars;
+    try {
+      const bars = await fetchBarsKite(symbol);
+      if (bars && bars.length > 0) return bars;
+    } catch {}
   }
   return fetchBarsYahoo(symbol);
 }
@@ -174,8 +177,10 @@ async function fetchQuote(symbol: string): Promise<{
   price: number; prevClose: number; marketCap: number; name: string;
 } | null> {
   if (isAuthenticated() && instrumentsLoaded) {
-    const quote = await fetchQuoteKite(symbol);
-    if (quote) return quote;
+    try {
+      const quote = await fetchQuoteKite(symbol);
+      if (quote) return quote;
+    } catch {}
   }
   return fetchQuoteYahoo(symbol);
 }

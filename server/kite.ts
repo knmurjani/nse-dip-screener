@@ -12,19 +12,16 @@ export function getKite(): KiteConnect {
   return kite;
 }
 
+let kiteApiWorking = true; // Track if Kite API calls actually succeed
+
+export function markKiteFailed() {
+  kiteApiWorking = false;
+  console.log("[Kite] API calls failing — marking as unavailable, falling back to Yahoo");
+}
+
 export function isAuthenticated(): boolean {
   if (!accessToken) return false;
-  // Kite tokens expire at ~6 AM IST next day
-  // Convert current UTC time to IST date
-  const now = new Date();
-  const istOffset = 5.5 * 60 * 60 * 1000;
-  const istNow = new Date(now.getTime() + istOffset);
-  const istToday = istNow.toISOString().split("T")[0];
-  
-  if (tokenExpiry && tokenExpiry !== istToday) {
-    console.log("[Kite] Token expired (set on", tokenExpiry, ", today IST is", istToday, ") — falling back to Yahoo");
-    return false;
-  }
+  if (!kiteApiWorking) return false;
   return true;
 }
 
