@@ -93,42 +93,46 @@ export default function FiltersTab() {
         {/* ═══ DAILY VIEW ═══ */}
         <TabsContent value="daily" className="mt-4 space-y-3">
           {/* Controls */}
-          <div className="flex flex-wrap items-center gap-2">
-            <Select value={selectedDate} onValueChange={setSelectedDate}>
-              <SelectTrigger className="w-40 h-8 text-xs" data-testid="select-date">
-                <SelectValue placeholder="Select date" />
-              </SelectTrigger>
-              <SelectContent>
-                {(data?.dates ?? []).slice().reverse().map(d => (
-                  <SelectItem key={d} value={d} className="text-xs">{d}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+          <div className="flex flex-col sm:flex-row sm:flex-wrap sm:items-center gap-2">
+            <div className="flex items-center gap-2">
+              <Select value={selectedDate} onValueChange={setSelectedDate}>
+                <SelectTrigger className="w-40 h-9 text-xs" data-testid="select-date">
+                  <SelectValue placeholder="Select date" />
+                </SelectTrigger>
+                <SelectContent side="bottom" align="start" sideOffset={4}>
+                  {(data?.dates ?? []).slice().reverse().map(d => (
+                    <SelectItem key={d} value={d} className="text-xs">{d}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
 
-            <Select value={filterMode} onValueChange={(v: any) => setFilterMode(v)}>
-              <SelectTrigger className="w-32 h-8 text-xs">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all" className="text-xs">All stocks</SelectItem>
-                <SelectItem value="passed" className="text-xs">Passed only</SelectItem>
-                <SelectItem value="failed" className="text-xs">Failed only</SelectItem>
-              </SelectContent>
-            </Select>
-
-            <div className="relative flex-1 min-w-[150px] max-w-[200px]">
-              <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
-              <Input placeholder="Search..." value={search} onChange={e => setSearch(e.target.value)} className="h-8 text-xs pl-7" />
+              <Select value={filterMode} onValueChange={(v: any) => setFilterMode(v)}>
+                <SelectTrigger className="w-32 h-9 text-xs">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent side="bottom" align="start" sideOffset={4}>
+                  <SelectItem value="all" className="text-xs">All stocks</SelectItem>
+                  <SelectItem value="passed" className="text-xs">Passed only</SelectItem>
+                  <SelectItem value="failed" className="text-xs">Failed only</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
 
-            <span className="text-[11px] text-muted-foreground ml-auto">
-              {dailyData.length} stocks · {signalsToday} signals · {passedToday} would fill
-            </span>
+            <div className="flex items-center gap-2">
+              <div className="relative flex-1 min-w-[150px] max-w-[200px]">
+                <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
+                <Input placeholder="Search..." value={search} onChange={e => setSearch(e.target.value)} className="h-9 text-xs pl-7" />
+              </div>
+
+              <span className="text-[11px] text-muted-foreground whitespace-nowrap">
+                {dailyData.length} stocks · {signalsToday} signals · {passedToday} would fill
+              </span>
+            </div>
           </div>
 
           {/* Funnel Summary */}
           {data && (
-            <div className="grid grid-cols-5 gap-2">
+            <div className="grid grid-cols-3 sm:grid-cols-5 gap-2">
               {[
                 { label: "Universe", val: dailyData.length, color: "" },
                 { label: "Above 200-DMA", val: dailyData.filter(d => d.aboveDma200).length, color: "" },

@@ -384,7 +384,7 @@ export default function Dashboard() {
 
         {/* Main Content */}
         <Tabs value={activeTab} onValueChange={setActiveTab}>
-          <TabsList className="flex w-full max-w-4xl h-9 overflow-x-auto">
+          <TabsList className="flex w-full max-w-4xl h-9 overflow-x-auto scrollbar-none [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
             <TabsTrigger value="signals" className="text-xs" data-testid="tab-signals">
               <Target className="w-3.5 h-3.5 mr-1.5" />
               Signals ({data?.signals.length ?? 0})
