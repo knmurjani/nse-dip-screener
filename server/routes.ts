@@ -4,7 +4,9 @@ import { runScreener, clearCache } from "./screener";
 import { startScheduler } from "./scheduler";
 import { getLoginURL, generateSession, setAccessToken, isAuthenticated, getKite, getKiteStatus, markKiteFailed } from "./kite";
 import { getBacktestResult, clearBacktestCache, runBacktest } from "./backtest";
+import { runBollingerBacktest } from "./backtest-bollinger";
 import Database from "better-sqlite3";
+import { logSystem, getSystemLogs } from "./storage";
 import { getFilterBreakdown, clearFilterBreakdownCache } from "./filter-breakdown";
 import { getPortfolioSummary, runDailyLifecycle } from "./live-portfolio";
 import { runBollingerScreener, clearBollingerCache } from "./screener-bollinger";
@@ -148,12 +150,14 @@ export async function registerRoutes(
   });
 
   // List all saved backtest runs (summary only)
-  app.get("/api/backtest/runs", (_req, res) => {
+  app.get("/api/backtest/runs", (req, res) => {
     try {
       const sqlite = new Database("data.db");
-      const runs = sqlite.prepare(
-        "SELECT id, name, created_at, period_from, period_to, capital, max_positions, universe_size, universe_label, total_trades, annualized_return_pct, total_return_pct, win_rate, sharpe_ratio, max_drawdown_pct, data_source FROM backtest_runs ORDER BY id DESC"
-      ).all();
+      const strategyFilter = req.query.strategyId as string;
+      let query = "SELECT id, name, strategy_id, created_at, period_from, period_to, capital, max_positions, universe_size, universe_label, total_trades, annualized_return_pct, total_return_pct, win_rate, sharpe_ratio, max_drawdown_pct, data_source, params_json FROM backtest_runs";
+      if (strategyFilter) query += ` WHERE strategy_id = '${strategyFilter.replace(/'/g, '')}'`;
+      query += " ORDER BY id DESC";
+      const runs = sqlite.prepare(query).all();
       res.json(runs);
     } catch (error: any) {
       res.status(500).json({ error: error.message });
@@ -163,43 +167,50 @@ export async function registerRoutes(
   // Run a new backtest and save it permanently
   app.post("/api/backtest/run", async (req, res) => {
     try {
-      const { name, capital, maxPositions, years } = req.body;
-      const params = {
-        capitalRs: capital || 1000000,
-        maxPositions: maxPositions || 10,
-        lookbackYears: years || 5,
-      };
+      const { name, capital, maxPositions, years, strategyId, absoluteStopPct, trailingStopPct, maPeriod, entryBandSigma, stopLossSigma, maxHoldDays } = req.body;
+      const strategy = strategyId || "atr_dip_buyer";
 
-      console.log(`[API] Running backtest: ${name || 'Unnamed'}, ${params.lookbackYears}yr, ₹${params.capitalRs/1e5}L, ${params.maxPositions} pos`);
-      clearBacktestCache();
-      const result = await runBacktest(params);
+      let result;
+      const commonParams = { capitalRs: capital || 1000000, maxPositions: maxPositions || 10, lookbackYears: years || 5 };
 
-      // Generate auto-name if not provided
-      const autoName = name || `${result.period.from} → ${result.period.to} | ${params.maxPositions} pos`;
+      if (strategy === "bollinger_bounce") {
+        result = await runBollingerBacktest({
+          ...commonParams,
+          maPeriod: maPeriod || 20,
+          entryBandSigma: entryBandSigma || 2,
+          stopLossSigma: stopLossSigma || 3,
+          maxHoldDays: maxHoldDays || 10,
+          absoluteStopPct: absoluteStopPct || undefined,
+          trailingStopPct: trailingStopPct || undefined,
+        });
+      } else {
+        clearBacktestCache();
+        result = await runBacktest(commonParams);
+      }
+
+      const autoName = name || `${strategy === "bollinger_bounce" ? "Bollinger" : "ATR Dip"} | ${result.period.from} → ${result.period.to} | ${commonParams.maxPositions} pos`;
       const now = new Date().toISOString();
+      const allParams = { ...commonParams, strategyId: strategy, absoluteStopPct, trailingStopPct, maPeriod, entryBandSigma, stopLossSigma, maxHoldDays };
 
-      // Save to database
       const sqlite = new Database("data.db");
       const stmt = sqlite.prepare(`
-        INSERT INTO backtest_runs (name, created_at, period_from, period_to, capital, max_positions, universe_size, universe_label, total_trades, annualized_return_pct, total_return_pct, win_rate, sharpe_ratio, max_drawdown_pct, data_source, summary_json, trades_json, snapshots_json)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO backtest_runs (name, strategy_id, created_at, period_from, period_to, capital, max_positions, universe_size, universe_label, total_trades, annualized_return_pct, total_return_pct, win_rate, sharpe_ratio, max_drawdown_pct, data_source, params_json, summary_json, trades_json, snapshots_json)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `);
       const info = stmt.run(
-        autoName, now, result.period.from, result.period.to,
-        params.capitalRs, params.maxPositions,
+        autoName, strategy, now, result.period.from, result.period.to,
+        commonParams.capitalRs, commonParams.maxPositions,
         result.summary.totalTrades, "Nifty 500",
         result.summary.totalTrades,
-        result.summary.annualizedReturnPct,
-        result.summary.totalReturnPct,
-        result.summary.winningPct,
-        result.summary.sharpeRatio,
-        result.summary.maxDrawdownPct,
-        result.summary.dataSource,
-        JSON.stringify(result.summary),
-        JSON.stringify(result.trades),
+        result.summary.annualizedReturnPct, result.summary.totalReturnPct,
+        result.summary.winningPct, result.summary.sharpeRatio,
+        result.summary.maxDrawdownPct, result.summary.dataSource,
+        JSON.stringify(allParams),
+        JSON.stringify(result.summary), JSON.stringify(result.trades),
         JSON.stringify(result.dailySnapshots)
       );
 
+      logSystem("backtest", "run_completed", `${autoName} | ${result.summary.totalTrades} trades | ${result.summary.annualizedReturnPct}% ann. return`);
       res.json({ id: info.lastInsertRowid, name: autoName, ...result });
     } catch (error: any) {
       console.error("[API] Backtest run error:", error.message);
@@ -249,6 +260,13 @@ export async function registerRoutes(
     const strategy = getStrategy(req.params.id);
     if (!strategy) return res.status(404).json({ error: "Strategy not found" });
     res.json(strategy);
+  });
+
+  // ─── System Log ───
+
+  app.get("/api/system/logs", (req, res) => {
+    const limit = parseInt(req.query.limit as string) || 100;
+    res.json(getSystemLogs(limit));
   });
 
   // ─── Live Portfolio ───

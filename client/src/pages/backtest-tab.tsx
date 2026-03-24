@@ -19,6 +19,7 @@ import {
   ArrowUpDown, ArrowUp, ArrowDown, Activity, Percent, Zap, Info,
   Plus, Trash2, Loader2, ChevronDown, ChevronUp, Play,
 } from "lucide-react";
+import { useStrategy } from "@/lib/strategy-context";
 
 // ─── Types ───
 
@@ -64,6 +65,7 @@ interface BacktestRunSummary {
   capital: number; max_positions: number; universe_size: number; universe_label: string;
   total_trades: number; annualized_return_pct: number; total_return_pct: number;
   win_rate: number; sharpe_ratio: number; max_drawdown_pct: number; data_source: string;
+  strategy_id?: string;
 }
 
 // ─── Helpers ───
@@ -115,6 +117,7 @@ const PERIOD_OPTIONS = [
 // ─── Main Component ───
 
 export default function BacktestTab() {
+  const { strategyId, strategyName } = useStrategy();
   const [sortField, setSortField] = useState<SortField>("entryDate");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
   const [expandedRow, setExpandedRow] = useState<number | null>(null);
@@ -124,15 +127,22 @@ export default function BacktestTab() {
   const [isDeleting, setIsDeleting] = useState<number | null>(null);
   const [showRunsList, setShowRunsList] = useState(false);
 
-  // Form state
+  // Form state — common
   const [formName, setFormName] = useState("");
   const [formYears, setFormYears] = useState("5");
   const [formCapital, setFormCapital] = useState("1000000");
   const [formMaxPositions, setFormMaxPositions] = useState("10");
+  const [formMaxHoldDays, setFormMaxHoldDays] = useState("10");
+  const [formAbsoluteStopPct, setFormAbsoluteStopPct] = useState("");
+  const [formTrailingStopPct, setFormTrailingStopPct] = useState("");
+  // Form state — Bollinger-specific
+  const [formMaPeriod, setFormMaPeriod] = useState("20");
+  const [formEntryBandSigma, setFormEntryBandSigma] = useState("2");
+  const [formStopLossSigma, setFormStopLossSigma] = useState("3");
 
-  // Fetch runs list
+  // Fetch runs list — filtered by strategy
   const { data: runs } = useQuery<BacktestRunSummary[]>({
-    queryKey: ["/api/backtest/runs"],
+    queryKey: [`/api/backtest/runs?strategyId=${strategyId}`],
     staleTime: 30000,
   });
 
@@ -157,17 +167,27 @@ export default function BacktestTab() {
   const handleRunBacktest = async () => {
     setIsRunning(true);
     try {
-      const res = await apiRequest("POST", "/api/backtest/run", {
+      const body: Record<string, unknown> = {
         name: formName || undefined,
         capital: Number(formCapital),
         maxPositions: Number(formMaxPositions),
         years: Number(formYears),
-      });
+        strategyId,
+        maxHoldDays: Number(formMaxHoldDays),
+        absoluteStopPct: formAbsoluteStopPct ? Number(formAbsoluteStopPct) : undefined,
+        trailingStopPct: formTrailingStopPct ? Number(formTrailingStopPct) : undefined,
+      };
+      if (strategyId === "bollinger_bounce") {
+        body.maPeriod = Number(formMaPeriod);
+        body.entryBandSigma = Number(formEntryBandSigma);
+        body.stopLossSigma = Number(formStopLossSigma);
+      }
+      const res = await apiRequest("POST", "/api/backtest/run", body);
       const result: BacktestResult = await res.json();
       setSelectedRunId(String(result.id));
       setShowNewForm(false);
       setFormName("");
-      queryClient.invalidateQueries({ queryKey: ["/api/backtest/runs"] });
+      queryClient.invalidateQueries({ queryKey: [`/api/backtest/runs?strategyId=${strategyId}`] });
       queryClient.setQueryData([`/api/backtest?runId=${result.id}`], result);
     } finally {
       setIsRunning(false);
@@ -178,7 +198,7 @@ export default function BacktestTab() {
     setIsDeleting(id);
     try {
       await apiRequest("DELETE", `/api/backtest/runs/${id}`);
-      queryClient.invalidateQueries({ queryKey: ["/api/backtest/runs"] });
+      queryClient.invalidateQueries({ queryKey: [`/api/backtest/runs?strategyId=${strategyId}`] });
       if (String(id) === activeRunId) {
         setSelectedRunId("");
         queryClient.invalidateQueries({ queryKey: ["/api/backtest"] });
@@ -251,9 +271,13 @@ export default function BacktestTab() {
       {showNewForm && (
         <Card data-testid="new-backtest-form">
           <CardHeader className="py-2 px-4">
-            <CardTitle className="text-xs font-semibold">Configure New Backtest</CardTitle>
+            <CardTitle className="text-xs font-semibold flex items-center gap-2">
+              Configure New Backtest
+              <Badge variant="outline" className="text-[10px]">{strategyName}</Badge>
+            </CardTitle>
           </CardHeader>
-          <CardContent className="px-4 pb-3">
+          <CardContent className="px-4 pb-3 space-y-3">
+            {/* Row 1: Core params */}
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
               <div>
                 <label className="text-[10px] text-muted-foreground block mb-1">Name (optional)</label>
@@ -293,7 +317,64 @@ export default function BacktestTab() {
                 />
               </div>
             </div>
-            <div className="flex items-center gap-3 mt-3">
+            {/* Row 2: Common risk params */}
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+              <div>
+                <label className="text-[10px] text-muted-foreground block mb-1">Max Hold Days</label>
+                <Input
+                  type="number" value={formMaxHoldDays} onChange={e => setFormMaxHoldDays(e.target.value)}
+                  className="h-8 text-xs tabular-nums"
+                  data-testid="input-max-hold-days"
+                />
+              </div>
+              <div>
+                <label className="text-[10px] text-muted-foreground block mb-1">Absolute Stop Loss %</label>
+                <Input
+                  type="number" value={formAbsoluteStopPct} onChange={e => setFormAbsoluteStopPct(e.target.value)}
+                  placeholder="e.g., 5 for -5%" className="h-8 text-xs tabular-nums"
+                  data-testid="input-absolute-stop"
+                />
+              </div>
+              <div>
+                <label className="text-[10px] text-muted-foreground block mb-1">Trailing Stop Loss %</label>
+                <Input
+                  type="number" value={formTrailingStopPct} onChange={e => setFormTrailingStopPct(e.target.value)}
+                  placeholder="e.g., 3 for -3% from peak" className="h-8 text-xs tabular-nums"
+                  data-testid="input-trailing-stop"
+                />
+              </div>
+            </div>
+            {/* Row 3: Bollinger-specific params */}
+            {strategyId === "bollinger_bounce" && (
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 pt-2 border-t border-border">
+                <div>
+                  <label className="text-[10px] text-muted-foreground block mb-1">MA Period</label>
+                  <Input
+                    type="number" value={formMaPeriod} onChange={e => setFormMaPeriod(e.target.value)}
+                    className="h-8 text-xs tabular-nums"
+                    data-testid="input-ma-period"
+                  />
+                </div>
+                <div>
+                  <label className="text-[10px] text-muted-foreground block mb-1">Entry Band σ</label>
+                  <Input
+                    type="number" value={formEntryBandSigma} onChange={e => setFormEntryBandSigma(e.target.value)}
+                    className="h-8 text-xs tabular-nums"
+                    data-testid="input-entry-band-sigma"
+                  />
+                </div>
+                <div>
+                  <label className="text-[10px] text-muted-foreground block mb-1">Stop Loss Band σ</label>
+                  <Input
+                    type="number" value={formStopLossSigma} onChange={e => setFormStopLossSigma(e.target.value)}
+                    className="h-8 text-xs tabular-nums"
+                    data-testid="input-stop-loss-sigma"
+                  />
+                </div>
+              </div>
+            )}
+            {/* Actions */}
+            <div className="flex items-center gap-3">
               <Button
                 size="sm" className="h-8 text-xs gap-1.5"
                 onClick={handleRunBacktest} disabled={isRunning}
@@ -334,6 +415,7 @@ export default function BacktestTab() {
                   <TableHeader>
                     <TableRow className="hover:bg-transparent">
                       <TableHead className="text-[11px] pl-4">Name</TableHead>
+                      <TableHead className="text-[11px]">Strategy</TableHead>
                       <TableHead className="text-[11px]">Period</TableHead>
                       <TableHead className="text-[11px] text-right">Ann. Ret%</TableHead>
                       <TableHead className="text-[11px] text-right">Total Ret%</TableHead>
@@ -358,6 +440,11 @@ export default function BacktestTab() {
                               {fmtRs(r.capital)} · {r.max_positions} pos · {r.universe_label}
                             </p>
                           </div>
+                        </TableCell>
+                        <TableCell className="py-2">
+                          <Badge variant="outline" className="text-[10px]" data-testid={`strategy-badge-${i}`}>
+                            {r.strategy_id === "bollinger_bounce" ? "Bollinger" : "ATR Dip"}
+                          </Badge>
                         </TableCell>
                         <TableCell className="text-xs tabular-nums py-2">
                           {r.period_from} → {r.period_to}
@@ -423,7 +510,8 @@ export default function BacktestTab() {
           <div className="flex items-center justify-between">
             <div>
               <h2 className="text-sm font-semibold" data-testid="backtest-period">
-                {data?.name}: {data?.period.from} → {data?.period.to}
+                Backtest — {strategyName}
+                <span className="font-normal text-muted-foreground"> · {data?.name}: {data?.period.from} → {data?.period.to}</span>
               </h2>
               <p className="text-[11px] text-muted-foreground">
                 {`₹${(s.initialCapital / 100000).toFixed(0)}L capital · ${s.maxPositions} max positions · ${s.positionSizePct}% per trade`}

@@ -95,6 +95,7 @@ sqlite.exec(`
   CREATE TABLE IF NOT EXISTS backtest_runs (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name TEXT NOT NULL,
+    strategy_id TEXT NOT NULL DEFAULT 'atr_dip_buyer',
     created_at TEXT NOT NULL,
     period_from TEXT NOT NULL,
     period_to TEXT NOT NULL,
@@ -109,9 +110,26 @@ sqlite.exec(`
     sharpe_ratio REAL NOT NULL,
     max_drawdown_pct REAL NOT NULL,
     data_source TEXT NOT NULL,
+    params_json TEXT DEFAULT '{}',
     summary_json TEXT NOT NULL,
     trades_json TEXT NOT NULL,
     snapshots_json TEXT NOT NULL
+  );
+`);
+
+// Add strategy_id column if missing (migration for existing DBs)
+try { sqlite.exec(`ALTER TABLE backtest_runs ADD COLUMN strategy_id TEXT NOT NULL DEFAULT 'atr_dip_buyer'`); } catch {}
+try { sqlite.exec(`ALTER TABLE backtest_runs ADD COLUMN params_json TEXT DEFAULT '{}'`); } catch {}
+
+// System changelog — audit trail for all actions
+sqlite.exec(`
+  CREATE TABLE IF NOT EXISTS system_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    timestamp TEXT NOT NULL,
+    category TEXT NOT NULL,
+    action TEXT NOT NULL,
+    details TEXT,
+    user_info TEXT
   );
 `);
 
@@ -132,3 +150,18 @@ export function getConfig(key: string): string | null {
 export function setConfig(key: string, value: string) {
   sqlite.prepare("INSERT OR REPLACE INTO live_config (key, value) VALUES (?, ?)").run(key, value);
 }
+
+// ─── System Log ───
+
+export function logSystem(category: string, action: string, details?: string) {
+  const timestamp = new Date().toISOString();
+  sqlite.prepare("INSERT INTO system_log (timestamp, category, action, details) VALUES (?, ?, ?, ?)")
+    .run(timestamp, category, action, details || null);
+}
+
+export function getSystemLogs(limit = 100): any[] {
+  return sqlite.prepare("SELECT * FROM system_log ORDER BY id DESC LIMIT ?").all(limit);
+}
+
+// Log app startup
+logSystem("system", "server_started", `App started at ${new Date().toISOString()}`);
