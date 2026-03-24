@@ -56,6 +56,7 @@ import BacktestTab from "./backtest-tab";
 import FiltersTab from "./filters-tab";
 import PositionsTab from "./positions-tab";
 import BollingerSignals from "./bollinger-signals";
+import BollingerUniverse from "./bollinger-universe";
 import KiteStatusBanner, { ZerodhaTab } from "@/components/kite-status";
 
 interface ScreenerData {
@@ -558,159 +559,50 @@ export default function Dashboard() {
             )}
           </TabsContent>
 
-          {/* UNIVERSE TAB */}
+          {/* UNIVERSE TAB — strategy-aware */}
           <TabsContent value="universe" className="mt-4">
+            {strategyId === "bollinger_bounce" ? (
+              <BollingerUniverse />
+            ) : (
             <Card>
               <CardHeader className="py-3 px-4">
                 <div className="flex items-center justify-between">
                   <CardTitle className="text-sm font-semibold">
-                    Full Universe — NSE Stocks (₹1,000 Cr+)
+                    ATR Dip Buyer Universe — Nifty 500
                   </CardTitle>
                   <div className="relative w-48">
                     <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-muted-foreground" />
-                    <Input
-                      placeholder="Filter..."
-                      value={universeSearch}
-                      onChange={(e) => setUniverseSearch(e.target.value)}
-                      className="h-8 text-xs pl-7"
-                      data-testid="input-universe-search"
-                    />
+                    <Input placeholder="Filter..." value={universeSearch} onChange={(e) => setUniverseSearch(e.target.value)} className="h-8 text-xs pl-7" data-testid="input-universe-search" />
                   </div>
                 </div>
               </CardHeader>
               <CardContent className="px-0 pb-0">
-                {isLoading ? (
-                  <SignalsSkeleton />
-                ) : (
+                {isLoading ? <SignalsSkeleton /> : (
                   <div className="overflow-x-auto">
                     <Table>
                       <TableHeader>
                         <TableRow className="hover:bg-transparent">
-                          <SortableHeader
-                            label="Stock"
-                            field="symbol"
-                            current={uSortField}
-                            dir={uSortDir}
-                            onClick={() => handleUSort("symbol")}
-                          />
-                          <SortableHeader
-                            label="Close"
-                            field="close"
-                            current={uSortField}
-                            dir={uSortDir}
-                            onClick={() => handleUSort("close")}
-                            align="right"
-                          />
-                          <SortableHeader
-                            label="Change"
-                            field="changePct"
-                            current={uSortField}
-                            dir={uSortDir}
-                            onClick={() => handleUSort("changePct")}
-                            align="right"
-                          />
-                          <SortableHeader
-                            label="200 DMA"
-                            field="dma200"
-                            current={uSortField}
-                            dir={uSortDir}
-                            onClick={() => handleUSort("dma200")}
-                            align="right"
-                          />
-                          <TableHead className="text-[11px] text-center whitespace-nowrap">
-                            Trend
-                          </TableHead>
-                          <SortableHeader
-                            label="ATR(5)"
-                            field="atr5"
-                            current={uSortField}
-                            dir={uSortDir}
-                            onClick={() => handleUSort("atr5")}
-                            align="right"
-                          />
-                          <SortableHeader
-                            label="ATR%"
-                            field="atrPctClose"
-                            current={uSortField}
-                            dir={uSortDir}
-                            onClick={() => handleUSort("atrPctClose")}
-                            align="right"
-                          />
-                          <SortableHeader
-                            label="Mkt Cap"
-                            field="marketCap"
-                            current={uSortField}
-                            dir={uSortDir}
-                            onClick={() => handleUSort("marketCap")}
-                            align="right"
-                          />
+                          <SortableHeader label="Stock" field="symbol" current={uSortField} dir={uSortDir} onClick={() => handleUSort("symbol")} />
+                          <SortableHeader label="Close" field="close" current={uSortField} dir={uSortDir} onClick={() => handleUSort("close")} align="right" />
+                          <SortableHeader label="Change" field="changePct" current={uSortField} dir={uSortDir} onClick={() => handleUSort("changePct")} align="right" />
+                          <SortableHeader label="200 DMA" field="dma200" current={uSortField} dir={uSortDir} onClick={() => handleUSort("dma200")} align="right" />
+                          <TableHead className="text-[11px] text-center whitespace-nowrap">Trend</TableHead>
+                          <SortableHeader label="ATR(5)" field="atr5" current={uSortField} dir={uSortDir} onClick={() => handleUSort("atr5")} align="right" />
+                          <SortableHeader label="ATR%" field="atrPctClose" current={uSortField} dir={uSortDir} onClick={() => handleUSort("atrPctClose")} align="right" />
+                          <SortableHeader label="Mkt Cap" field="marketCap" current={uSortField} dir={uSortDir} onClick={() => handleUSort("marketCap")} align="right" />
                         </TableRow>
                       </TableHeader>
                       <TableBody>
                         {filteredUniverse.map((stock, idx) => (
-                          <TableRow
-                            key={stock.symbol}
-                            data-testid={`row-universe-${idx}`}
-                          >
-                            <TableCell className="py-2 pl-4">
-                              <div>
-                                <span className="text-xs font-semibold">
-                                  {stock.symbol}
-                                </span>
-                                <p className="text-[10px] text-muted-foreground leading-tight mt-0.5 max-w-[140px] truncate">
-                                  {stock.name}
-                                </p>
-                              </div>
-                            </TableCell>
-                            <TableCell className="text-right tabular-nums text-xs py-2">
-                              {formatPrice(stock.close)}
-                            </TableCell>
-                            <TableCell className="text-right py-2">
-                              <span
-                                className={`text-xs tabular-nums font-medium ${
-                                  stock.changePct >= 0
-                                    ? "text-gain"
-                                    : "text-loss"
-                                }`}
-                              >
-                                {stock.changePct >= 0 ? "+" : ""}
-                                {stock.changePct.toFixed(2)}%
-                              </span>
-                            </TableCell>
-                            <TableCell className="text-right tabular-nums text-xs text-muted-foreground py-2">
-                              {formatPrice(stock.dma200)}
-                            </TableCell>
-                            <TableCell className="text-center py-2">
-                              <Badge
-                                variant={
-                                  stock.aboveDma200 ? "default" : "secondary"
-                                }
-                                className={`text-[10px] ${
-                                  stock.aboveDma200
-                                    ? "bg-green-500/15 text-gain border-green-500/25"
-                                    : "bg-red-500/10 text-loss border-red-500/20"
-                                }`}
-                              >
-                                {stock.aboveDma200 ? "▲ Above" : "▼ Below"}
-                              </Badge>
-                            </TableCell>
-                            <TableCell className="text-right tabular-nums text-xs py-2">
-                              {formatPrice(stock.atr5)}
-                            </TableCell>
-                            <TableCell className="text-right tabular-nums text-xs py-2">
-                              <span
-                                className={
-                                  stock.atrPctClose > 3
-                                    ? "text-yellow-500 font-medium"
-                                    : "text-muted-foreground"
-                                }
-                              >
-                                {stock.atrPctClose.toFixed(1)}%
-                              </span>
-                            </TableCell>
-                            <TableCell className="text-right tabular-nums text-xs text-muted-foreground py-2 pr-4">
-                              {formatCrore(stock.marketCap)}
-                            </TableCell>
+                          <TableRow key={stock.symbol} data-testid={`row-universe-${idx}`}>
+                            <TableCell className="py-2 pl-4"><div><span className="text-xs font-semibold">{stock.symbol}</span><p className="text-[10px] text-muted-foreground leading-tight mt-0.5 max-w-[140px] truncate">{stock.name}</p></div></TableCell>
+                            <TableCell className="text-right tabular-nums text-xs py-2">{formatPrice(stock.close)}</TableCell>
+                            <TableCell className="text-right py-2"><span className={`text-xs tabular-nums font-medium ${stock.changePct >= 0 ? "text-gain" : "text-loss"}`}>{stock.changePct >= 0 ? "+" : ""}{stock.changePct.toFixed(2)}%</span></TableCell>
+                            <TableCell className="text-right tabular-nums text-xs text-muted-foreground py-2">{formatPrice(stock.dma200)}</TableCell>
+                            <TableCell className="text-center py-2"><Badge variant={stock.aboveDma200 ? "default" : "secondary"} className={`text-[10px] ${stock.aboveDma200 ? "bg-green-500/15 text-gain border-green-500/25" : "bg-red-500/10 text-loss border-red-500/20"}`}>{stock.aboveDma200 ? "▲ Above" : "▼ Below"}</Badge></TableCell>
+                            <TableCell className="text-right tabular-nums text-xs py-2">{formatPrice(stock.atr5)}</TableCell>
+                            <TableCell className="text-right tabular-nums text-xs py-2"><span className={stock.atrPctClose > 3 ? "text-yellow-500 font-medium" : "text-muted-foreground"}>{stock.atrPctClose.toFixed(1)}%</span></TableCell>
+                            <TableCell className="text-right tabular-nums text-xs text-muted-foreground py-2 pr-4">{formatCrore(stock.marketCap)}</TableCell>
                           </TableRow>
                         ))}
                       </TableBody>
@@ -719,6 +611,7 @@ export default function Dashboard() {
                 )}
               </CardContent>
             </Card>
+            )}
           </TabsContent>
 
           {/* PORTFOLIO TAB */}
