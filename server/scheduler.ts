@@ -1,4 +1,5 @@
 import { runScreener, clearCache } from "./screener";
+import { runDailyLifecycle } from "./live-portfolio";
 
 /**
  * Built-in scheduler — refreshes screener data at configured times.
@@ -43,8 +44,11 @@ function scheduleRefresh(hour: number, minute: number, label: string) {
         clearCache();
         const result = await runScreener();
         console.log(
-          `[Scheduler] Done: ${result.stats.totalScanned} stocks scanned, ${result.stats.signalsGenerated} signals generated`
+          `[Scheduler] Screener: ${result.stats.totalScanned} stocks, ${result.stats.signalsGenerated} signals`
         );
+        // Run live portfolio lifecycle
+        await runDailyLifecycle();
+        console.log(`[Scheduler] Live portfolio lifecycle complete`);
       } catch (e: any) {
         console.error(`[Scheduler] Refresh failed:`, e.message);
       }

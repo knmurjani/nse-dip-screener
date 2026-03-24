@@ -46,6 +46,7 @@ import type { ScreenerStock, UniverseStock } from "@shared/schema";
 import { PerplexityAttribution } from "@/components/PerplexityAttribution";
 import BacktestTab from "./backtest-tab";
 import FiltersTab from "./filters-tab";
+import PositionsTab from "./positions-tab";
 
 interface ScreenerData {
   lastUpdated: string;
@@ -297,14 +298,18 @@ export default function Dashboard() {
 
         {/* Main Content */}
         <Tabs value={activeTab} onValueChange={setActiveTab}>
-          <TabsList className="grid w-full max-w-2xl grid-cols-5 h-9">
+          <TabsList className="grid w-full max-w-3xl grid-cols-6 h-9">
             <TabsTrigger value="signals" className="text-xs" data-testid="tab-signals">
               <Target className="w-3.5 h-3.5 mr-1.5" />
-              Live ({data?.signals.length ?? 0})
+              Signals ({data?.signals.length ?? 0})
+            </TabsTrigger>
+            <TabsTrigger value="portfolio" className="text-xs" data-testid="tab-portfolio">
+              <BarChart3 className="w-3.5 h-3.5 mr-1.5" />
+              Portfolio
             </TabsTrigger>
             <TabsTrigger value="universe" className="text-xs" data-testid="tab-universe">
               <BarChart3 className="w-3.5 h-3.5 mr-1.5" />
-              Universe ({data?.universe.length ?? 0})
+              Universe
             </TabsTrigger>
             <TabsTrigger value="backtest" className="text-xs" data-testid="tab-backtest">
               <BarChart3 className="w-3.5 h-3.5 mr-1.5" />
@@ -683,6 +688,11 @@ export default function Dashboard() {
                 )}
               </CardContent>
             </Card>
+          </TabsContent>
+
+          {/* PORTFOLIO TAB */}
+          <TabsContent value="portfolio" className="mt-4">
+            <PositionsTab />
           </TabsContent>
 
           {/* FILTERS TAB */}

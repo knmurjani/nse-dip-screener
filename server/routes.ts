@@ -5,6 +5,7 @@ import { startScheduler } from "./scheduler";
 import { getLoginURL, generateSession, setAccessToken, isAuthenticated, getKite } from "./kite";
 import { getBacktestResult, clearBacktestCache } from "./backtest";
 import { getFilterBreakdown, clearFilterBreakdownCache } from "./filter-breakdown";
+import { getPortfolioSummary, runDailyLifecycle } from "./live-portfolio";
 
 export async function registerRoutes(
   httpServer: Server,
@@ -115,6 +116,27 @@ export async function registerRoutes(
       res.json(result);
     } catch (error: any) {
       res.status(500).json({ error: "Backtest failed", message: error.message });
+    }
+  });
+
+  // ─── Live Portfolio ───
+
+  app.get("/api/live/portfolio", (_req, res) => {
+    try {
+      const result = getPortfolioSummary();
+      res.json(result);
+    } catch (error: any) {
+      res.status(500).json({ error: "Failed to get portfolio", message: error.message });
+    }
+  });
+
+  app.post("/api/live/run", async (_req, res) => {
+    try {
+      const result = await runDailyLifecycle();
+      res.json(result);
+    } catch (error: any) {
+      console.error("[API] Live lifecycle error:", error.message);
+      res.status(500).json({ error: "Lifecycle failed", message: error.message });
     }
   });
 
