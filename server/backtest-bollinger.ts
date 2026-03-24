@@ -200,22 +200,22 @@ export async function runBollingerBacktest(params: BollingerBacktestParams): Pro
       let exitReason: Trade["exitReason"] | null = null;
       let exitDetail = "";
 
-      // Exit 1: Mean reversion target — price reaches MA
+      // Exit 1: Mean reversion target — price reaches 20-DMA (the mean)
       const ma = computeSMA(bars, tIdx, MA_PERIOD);
       if (bar.high >= ma) {
         exitPrice = ma;
         exitReason = "profit_target";
-        exitDetail = `High ₹${bar.high.toFixed(2)} ≥ ${MA_PERIOD}-DMA ₹${ma.toFixed(2)} — mean reversion target hit`;
+        exitDetail = `✅ MEAN TARGET: High ₹${bar.high.toFixed(2)} ≥ ${MA_PERIOD}-DMA ₹${ma.toFixed(2)} — mean reversion complete`;
       }
 
-      // Exit 2: Stop loss — drops to -3σ
+      // Exit 2: Stop loss — drops to -3σ band
       if (!exitReason) {
         const std = computeStdDev(bars, tIdx, MA_PERIOD);
         const stopBand = ma - STOP_SIGMA * std;
         if (bar.low <= stopBand) {
           exitPrice = stopBand;
           exitReason = "price_action_close_above_prev_high";
-          exitDetail = `Low ₹${bar.low.toFixed(2)} ≤ −${STOP_SIGMA}σ band ₹${stopBand.toFixed(2)} — stop loss triggered`;
+          exitDetail = `🛑 −${STOP_SIGMA}σ STOP: Low ₹${bar.low.toFixed(2)} ≤ −${STOP_SIGMA}σ band ₹${stopBand.toFixed(2)} — extreme deviation, cut loss`;
         }
       }
 
@@ -225,7 +225,7 @@ export async function runBollingerBacktest(params: BollingerBacktestParams): Pro
         if (bar.low <= absStopPrice) {
           exitPrice = absStopPrice;
           exitReason = "price_action_close_above_prev_high";
-          exitDetail = `Low ₹${bar.low.toFixed(2)} ≤ Absolute stop −${ABS_STOP}% = ₹${absStopPrice.toFixed(2)}`;
+          exitDetail = `🛑 ABS STOP: Low ₹${bar.low.toFixed(2)} ≤ −${ABS_STOP}% from entry = ₹${absStopPrice.toFixed(2)}`;
         }
       }
 
@@ -235,7 +235,7 @@ export async function runBollingerBacktest(params: BollingerBacktestParams): Pro
         if (bar.low <= trailStopPrice) {
           exitPrice = trailStopPrice;
           exitReason = "price_action_close_above_prev_high";
-          exitDetail = `Low ₹${bar.low.toFixed(2)} ≤ Trailing stop −${TRAIL_STOP}% from peak ₹${pos.peakPrice.toFixed(2)} = ₹${trailStopPrice.toFixed(2)}`;
+          exitDetail = `🛑 TRAIL STOP: Low ₹${bar.low.toFixed(2)} ≤ −${TRAIL_STOP}% from peak ₹${pos.peakPrice.toFixed(2)} = ₹${trailStopPrice.toFixed(2)}`;
         }
       }
 
@@ -243,7 +243,7 @@ export async function runBollingerBacktest(params: BollingerBacktestParams): Pro
       if (!exitReason && pos.tradingDaysHeld >= MAX_HOLD) {
         exitPrice = bar.close;
         exitReason = "time_exit_10_days";
-        exitDetail = `Held ${pos.tradingDaysHeld} days ≥ ${MAX_HOLD} day limit — exit at ₹${bar.close.toFixed(2)}`;
+        exitDetail = `⏰ TIME EXIT: Held ${pos.tradingDaysHeld} days ≥ ${MAX_HOLD} day limit — exit at close ₹${bar.close.toFixed(2)}`;
       }
 
       if (exitReason) {
@@ -279,8 +279,13 @@ export async function runBollingerBacktest(params: BollingerBacktestParams): Pro
         ma: number; std: number; setupScore: number; target: number; stop: number;
       }[] = [];
 
+      // Track recently closed symbols to prevent re-entry on same day
+      const recentlyClosed = new Set(trades.filter(t => t.exitDate === today).map(t => t.symbol + ".NS"));
+
       for (const [symbol, bars] of allBars.entries()) {
+        // No duplicate positions (same ticker can't have 2 open)
         if (openPositions.some(p => p.symbol === symbol)) continue;
+        if (recentlyClosed.has(symbol)) continue;
         const idxMap = barIndex.get(symbol);
         if (!idxMap) continue;
         const tIdx = idxMap.get(today);

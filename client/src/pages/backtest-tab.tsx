@@ -17,7 +17,7 @@ import {
 import {
   RefreshCw, TrendingUp, Trophy, AlertTriangle, Target, BarChart3,
   ArrowUpDown, ArrowUp, ArrowDown, Activity, Percent, Zap, Info,
-  Plus, Trash2, Loader2, ChevronDown, ChevronUp, Play,
+  Plus, Trash2, Loader2, ChevronDown, ChevronUp, Play, Crosshair, Clock,
 } from "lucide-react";
 import { useStrategy } from "@/lib/strategy-context";
 
@@ -106,14 +106,6 @@ function formatChartDate(dateStr: string): string {
   return d.toLocaleDateString("en-IN", { day: "2-digit", month: "short" });
 }
 
-const PERIOD_OPTIONS = [
-  { value: "1", label: "1 Year" },
-  { value: "2", label: "2 Years" },
-  { value: "3", label: "3 Years" },
-  { value: "5", label: "5 Years" },
-  { value: "10", label: "10 Years" },
-];
-
 // ─── Main Component ───
 
 export default function BacktestTab() {
@@ -129,7 +121,11 @@ export default function BacktestTab() {
 
   // Form state — common
   const [formName, setFormName] = useState("");
-  const [formYears, setFormYears] = useState("5");
+  const [formFromDate, setFormFromDate] = useState(() => {
+    const d = new Date(); d.setFullYear(d.getFullYear() - 5);
+    return d.toISOString().slice(0, 10);
+  });
+  const [formToDate, setFormToDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [formCapital, setFormCapital] = useState("1000000");
   const [formMaxPositions, setFormMaxPositions] = useState("10");
   const [formMaxHoldDays, setFormMaxHoldDays] = useState("10");
@@ -171,7 +167,8 @@ export default function BacktestTab() {
         name: formName || undefined,
         capital: Number(formCapital),
         maxPositions: Number(formMaxPositions),
-        years: Number(formYears),
+        fromDate: formFromDate,
+        toDate: formToDate,
         strategyId,
         maxHoldDays: Number(formMaxHoldDays),
         absoluteStopPct: formAbsoluteStopPct ? Number(formAbsoluteStopPct) : undefined,
@@ -278,7 +275,7 @@ export default function BacktestTab() {
           </CardHeader>
           <CardContent className="px-4 pb-3 space-y-3">
             {/* Row 1: Core params */}
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
               <div>
                 <label className="text-[10px] text-muted-foreground block mb-1">Name (optional)</label>
                 <Input
@@ -288,17 +285,20 @@ export default function BacktestTab() {
                 />
               </div>
               <div>
-                <label className="text-[10px] text-muted-foreground block mb-1">Period</label>
-                <Select value={formYears} onValueChange={setFormYears}>
-                  <SelectTrigger className="h-8 text-xs" data-testid="select-period">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {PERIOD_OPTIONS.map(o => (
-                      <SelectItem key={o.value} value={o.value} className="text-xs">{o.label}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                <label className="text-[10px] text-muted-foreground block mb-1">From Date</label>
+                <Input
+                  type="date" value={formFromDate} onChange={e => setFormFromDate(e.target.value)}
+                  className="h-8 text-xs"
+                  data-testid="input-from-date"
+                />
+              </div>
+              <div>
+                <label className="text-[10px] text-muted-foreground block mb-1">To Date</label>
+                <Input
+                  type="date" value={formToDate} onChange={e => setFormToDate(e.target.value)}
+                  className="h-8 text-xs"
+                  data-testid="input-to-date"
+                />
               </div>
               <div>
                 <label className="text-[10px] text-muted-foreground block mb-1">Capital (₹)</label>
@@ -416,6 +416,7 @@ export default function BacktestTab() {
                     <TableRow className="hover:bg-transparent">
                       <TableHead className="text-[11px] pl-4">Name</TableHead>
                       <TableHead className="text-[11px]">Strategy</TableHead>
+                      <TableHead className="text-[11px]">Run Date</TableHead>
                       <TableHead className="text-[11px]">Period</TableHead>
                       <TableHead className="text-[11px] text-right">Ann. Ret%</TableHead>
                       <TableHead className="text-[11px] text-right">Total Ret%</TableHead>
@@ -445,6 +446,13 @@ export default function BacktestTab() {
                           <Badge variant="outline" className="text-[10px]" data-testid={`strategy-badge-${i}`}>
                             {r.strategy_id === "bollinger_bounce" ? "Bollinger" : "ATR Dip"}
                           </Badge>
+                        </TableCell>
+                        <TableCell className="text-[11px] tabular-nums text-muted-foreground py-2">
+                          {new Date(r.created_at).toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })}
+                          <br />
+                          <span className="text-[10px]">
+                            {new Date(r.created_at).toLocaleTimeString("en-IN", { hour: "2-digit", minute: "2-digit", hour12: true })}
+                          </span>
                         </TableCell>
                         <TableCell className="text-xs tabular-nums py-2">
                           {r.period_from} → {r.period_to}
@@ -619,6 +627,9 @@ export default function BacktestTab() {
               testId="kpi-consec-losses"
             />
           </div>
+
+          {/* ── Strategy Rules ── */}
+          <StrategyRulesCard strategyId={strategyId} />
 
           {/* ── Charts ── */}
           {chartData.length > 0 && (
@@ -869,5 +880,83 @@ function SortHead({ label, field, current, dir, onClick, align = "left" }: {
         )}
       </div>
     </TableHead>
+  );
+}
+
+function StrategyRulesCard({ strategyId }: { strategyId: string }) {
+  const [open, setOpen] = useState(false);
+  const rules = strategyId === "bollinger_bounce" ? {
+    entry: [
+      "20-day MA + StdDev bands",
+      "Watchlist when below \u22122\u03c3",
+      "Buy when crosses back above \u22122\u03c3",
+      "Rank by distance below mean",
+    ],
+    exit: [
+      { name: "Mean Target", desc: "Price reaches 20-DMA" },
+      { name: "\u22123\u03c3 Stop", desc: "Price drops to \u22123\u03c3" },
+      { name: "Time Exit", desc: "10 trading days max" },
+    ],
+  } : {
+    entry: [
+      "Above 200-DMA",
+      "Drop > 3%",
+      "ATR% > 3%",
+      "Limit buy at Close \u2212 0.9\u00d7ATR",
+      "Rank by ATR/Close",
+    ],
+    exit: [
+      { name: "Profit Target", desc: "Entry + 0.5\u00d7ATR(5)" },
+      { name: "Price Action", desc: "Close > prev high" },
+      { name: "Time Exit", desc: "10 trading days max" },
+    ],
+  };
+
+  return (
+    <Card data-testid="strategy-rules-card">
+      <CardHeader className="py-2 px-4 cursor-pointer" onClick={() => setOpen(!open)} data-testid="toggle-rules">
+        <CardTitle className="text-xs font-semibold flex items-center justify-between">
+          <span className="flex items-center gap-2">
+            <Info className="w-3.5 h-3.5 text-primary" />
+            Entry & Exit Rules
+          </span>
+          {open ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+        </CardTitle>
+      </CardHeader>
+      {open && (
+        <CardContent className="px-4 pb-3 pt-0">
+          <div className="grid sm:grid-cols-2 gap-4">
+            <div>
+              <h4 className="text-[11px] font-semibold text-muted-foreground flex items-center gap-1.5 mb-2">
+                <Crosshair className="w-3 h-3 text-primary" /> Entry Rules
+              </h4>
+              <ol className="space-y-1.5">
+                {rules.entry.map((rule, i) => (
+                  <li key={i} className="flex items-start gap-2">
+                    <span className="flex-shrink-0 w-4 h-4 rounded-full bg-primary/10 text-primary flex items-center justify-center text-[9px] font-bold mt-0.5">
+                      {i + 1}
+                    </span>
+                    <span className="text-[11px] text-muted-foreground">{rule}</span>
+                  </li>
+                ))}
+              </ol>
+            </div>
+            <div>
+              <h4 className="text-[11px] font-semibold text-muted-foreground flex items-center gap-1.5 mb-2">
+                <Clock className="w-3 h-3 text-primary" /> Exit Rules
+              </h4>
+              <div className="space-y-1.5">
+                {rules.exit.map((rule, i) => (
+                  <div key={i} className="flex items-start gap-2">
+                    <Badge variant="outline" className="text-[9px] px-1.5 shrink-0">{rule.name}</Badge>
+                    <span className="text-[11px] text-muted-foreground">{rule.desc}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </CardContent>
+      )}
+    </Card>
   );
 }

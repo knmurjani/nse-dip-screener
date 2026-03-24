@@ -167,7 +167,7 @@ export async function registerRoutes(
   // Run a new backtest and save it permanently
   app.post("/api/backtest/run", async (req, res) => {
     try {
-      const { name, capital, maxPositions, years, strategyId, absoluteStopPct, trailingStopPct, maPeriod, entryBandSigma, stopLossSigma, maxHoldDays } = req.body;
+      const { name, capital, maxPositions, years, fromDate, toDate, strategyId, absoluteStopPct, trailingStopPct, maPeriod, entryBandSigma, stopLossSigma, maxHoldDays } = req.body;
       const strategy = strategyId || "atr_dip_buyer";
 
       let result;
@@ -189,8 +189,16 @@ export async function registerRoutes(
       }
 
       const autoName = name || `${strategy === "bollinger_bounce" ? "Bollinger" : "ATR Dip"} | ${result.period.from} → ${result.period.to} | ${commonParams.maxPositions} pos`;
-      const now = new Date().toISOString();
-      const allParams = { ...commonParams, strategyId: strategy, absoluteStopPct, trailingStopPct, maPeriod, entryBandSigma, stopLossSigma, maxHoldDays };
+      // IST timestamp
+      const istNow = new Date(Date.now() + 5.5 * 60 * 60 * 1000);
+      const now = istNow.toISOString().replace("T", " ").split(".")[0] + " IST";
+      const strategyDef = getStrategy(strategy);
+      const allParams = {
+        ...commonParams, strategyId: strategy, absoluteStopPct, trailingStopPct,
+        maPeriod, entryBandSigma, stopLossSigma, maxHoldDays, fromDate, toDate,
+        entryRules: strategyDef?.entryRules || [],
+        exitRules: strategyDef?.exitRules || [],
+      };
 
       const sqlite = new Database("data.db");
       const stmt = sqlite.prepare(`

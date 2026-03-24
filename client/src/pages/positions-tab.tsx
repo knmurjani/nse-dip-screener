@@ -14,8 +14,9 @@ import {
 import {
   RefreshCw, Briefcase, History, Clock, Target, TrendingUp, TrendingDown,
   AlertTriangle, ArrowUpDown, ArrowUp, ArrowDown, Info, Wallet, BarChart3,
-  PlayCircle, Crosshair,
+  PlayCircle, Crosshair, ChevronDown, ChevronUp,
 } from "lucide-react";
+import { useStrategy } from "@/lib/strategy-context";
 
 // ─── Types ───
 
@@ -117,6 +118,8 @@ function formatChartDate(dateStr: string): string {
 // ─── Main Component ───
 
 export default function PositionsTab() {
+  const { strategyId } = useStrategy();
+  const [rulesOpen, setRulesOpen] = useState(false);
   const [subTab, setSubTab] = useState("positions");
   const [posSortField, setPosSortField] = useState<PositionSortField>("entryDate");
   const [posSortDir, setPosSortDir] = useState<SortDir>("desc");
@@ -252,6 +255,9 @@ export default function PositionsTab() {
               testId="metric-avg-loss"
             />
           </div>
+
+          {/* ── Strategy Rules Summary ── */}
+          <PortfolioRulesCard strategyId={strategyId} open={rulesOpen} onToggle={() => setRulesOpen(!rulesOpen)} />
 
           {/* ── Section 2: Sub-tabs ── */}
           <Tabs value={subTab} onValueChange={setSubTab} data-testid="portfolio-tabs">
@@ -586,5 +592,82 @@ function SortHead({ label, field, current, dir, onClick, align = "left" }: {
         )}
       </div>
     </TableHead>
+  );
+}
+
+function PortfolioRulesCard({ strategyId, open, onToggle }: { strategyId: string; open: boolean; onToggle: () => void }) {
+  const rules = strategyId === "bollinger_bounce" ? {
+    entry: [
+      "20-day MA + StdDev bands",
+      "Watchlist when below \u22122\u03c3",
+      "Buy when crosses back above \u22122\u03c3",
+      "Rank by distance below mean",
+    ],
+    exit: [
+      { name: "Mean Target", desc: "Price reaches 20-DMA" },
+      { name: "\u22123\u03c3 Stop", desc: "Price drops to \u22123\u03c3" },
+      { name: "Time Exit", desc: "10 trading days max" },
+    ],
+  } : {
+    entry: [
+      "Above 200-DMA",
+      "Drop > 3%",
+      "ATR% > 3%",
+      "Limit buy at Close \u2212 0.9\u00d7ATR",
+      "Rank by ATR/Close",
+    ],
+    exit: [
+      { name: "Profit Target", desc: "Entry + 0.5\u00d7ATR(5)" },
+      { name: "Price Action", desc: "Close > prev high" },
+      { name: "Time Exit", desc: "10 trading days max" },
+    ],
+  };
+
+  return (
+    <Card data-testid="portfolio-rules-card">
+      <CardHeader className="py-2 px-4 cursor-pointer" onClick={onToggle} data-testid="toggle-portfolio-rules">
+        <CardTitle className="text-xs font-semibold flex items-center justify-between">
+          <span className="flex items-center gap-2">
+            <Info className="w-3.5 h-3.5 text-primary" />
+            Entry & Exit Rules
+          </span>
+          {open ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+        </CardTitle>
+      </CardHeader>
+      {open && (
+        <CardContent className="px-4 pb-3 pt-0">
+          <div className="grid sm:grid-cols-2 gap-4">
+            <div>
+              <h4 className="text-[11px] font-semibold text-muted-foreground flex items-center gap-1.5 mb-2">
+                <Crosshair className="w-3 h-3 text-primary" /> Entry Rules
+              </h4>
+              <ol className="space-y-1">
+                {rules.entry.map((rule, i) => (
+                  <li key={i} className="flex items-start gap-2">
+                    <span className="flex-shrink-0 w-4 h-4 rounded-full bg-primary/10 text-primary flex items-center justify-center text-[9px] font-bold mt-0.5">
+                      {i + 1}
+                    </span>
+                    <span className="text-[11px] text-muted-foreground">{rule}</span>
+                  </li>
+                ))}
+              </ol>
+            </div>
+            <div>
+              <h4 className="text-[11px] font-semibold text-muted-foreground flex items-center gap-1.5 mb-2">
+                <Clock className="w-3 h-3 text-primary" /> Exit Rules
+              </h4>
+              <div className="space-y-1">
+                {rules.exit.map((rule, i) => (
+                  <div key={i} className="flex items-start gap-2">
+                    <Badge variant="outline" className="text-[9px] px-1.5 shrink-0">{rule.name}</Badge>
+                    <span className="text-[11px] text-muted-foreground">{rule.desc}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </CardContent>
+      )}
+    </Card>
   );
 }

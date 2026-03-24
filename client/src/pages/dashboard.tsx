@@ -58,6 +58,7 @@ import PositionsTab from "./positions-tab";
 import BollingerSignals from "./bollinger-signals";
 import BollingerUniverse from "./bollinger-universe";
 import KiteStatusBanner, { ZerodhaTab } from "@/components/kite-status";
+import SystemLogTab from "./system-log-tab";
 
 interface ScreenerData {
   lastUpdated: string;
@@ -70,6 +71,20 @@ interface ScreenerData {
     passedVolFilter: number;
     signalsGenerated: number;
   };
+}
+
+interface BollingerResult {
+  lastUpdated: string;
+  signals: unknown[];
+  watchlist: unknown[];
+  universe: unknown[];
+  stats: {
+    totalScanned: number;
+    belowMinus2: number;
+    crossedAbove: number;
+    signalsGenerated: number;
+  };
+  dataSource: string;
 }
 
 type SortField =
@@ -133,6 +148,12 @@ export default function Dashboard() {
     queryKey: ["/api/screener"],
     staleTime: 5 * 60 * 1000,
     refetchInterval: 10 * 60 * 1000,
+  });
+
+  const { data: bollingerData, isLoading: bollingerLoading } = useQuery<BollingerResult>({
+    queryKey: ["/api/bollinger/screener"],
+    staleTime: 5 * 60 * 1000,
+    enabled: strategyId === "bollinger_bounce",
   });
 
   const handleRefresh = async () => {
@@ -280,45 +301,86 @@ export default function Dashboard() {
         {/* Kite Connection Status */}
         <KiteStatusBanner />
 
-        {/* KPI Cards */}
-        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
-          <KPICard
-            label="Universe"
-            value={data?.stats.totalScanned ?? 0}
-            icon={<BarChart3 className="w-4 h-4" />}
-            sub="₹1K Cr+ market cap"
-            loading={isLoading}
-          />
-          <KPICard
-            label="Above 200 DMA"
-            value={data?.stats.above200dma ?? 0}
-            icon={<TrendingDown className="w-4 h-4" />}
-            sub="Uptrend filter"
-            loading={isLoading}
-          />
-          <KPICard
-            label="Dipped > 3%"
-            value={data?.stats.dippedOver3pct ?? 0}
-            icon={<Activity className="w-4 h-4" />}
-            sub="Signal day"
-            loading={isLoading}
-          />
-          <KPICard
-            label="Vol Filter Pass"
-            value={data?.stats.passedVolFilter ?? 0}
-            icon={<Filter className="w-4 h-4" />}
-            sub="ATR% > 3"
-            loading={isLoading}
-          />
-          <KPICard
-            label="Signals"
-            value={data?.stats.signalsGenerated ?? 0}
-            icon={<Target className="w-4 h-4" />}
-            sub="Actionable trades"
-            loading={isLoading}
-            highlight
-          />
-        </div>
+        {/* KPI Cards — strategy-aware */}
+        {strategyId === "bollinger_bounce" ? (
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+            <KPICard
+              label="Universe"
+              value={bollingerData?.stats.totalScanned ?? 0}
+              icon={<BarChart3 className="w-4 h-4" />}
+              sub="₹1K Cr+ market cap"
+              loading={bollingerLoading}
+            />
+            <KPICard
+              label="Below −2σ"
+              value={bollingerData?.stats.belowMinus2 ?? 0}
+              icon={<TrendingDown className="w-4 h-4" />}
+              sub="Below lower band"
+              loading={bollingerLoading}
+            />
+            <KPICard
+              label="Crossed Above"
+              value={bollingerData?.stats.crossedAbove ?? 0}
+              icon={<Activity className="w-4 h-4" />}
+              sub="Bounce signal"
+              loading={bollingerLoading}
+            />
+            <KPICard
+              label="Watchlist"
+              value={bollingerData?.stats.belowMinus2 ?? 0}
+              icon={<Crosshair className="w-4 h-4" />}
+              sub="Monitoring for bounce"
+              loading={bollingerLoading}
+            />
+            <KPICard
+              label="Buy Signals"
+              value={bollingerData?.stats.signalsGenerated ?? 0}
+              icon={<Target className="w-4 h-4" />}
+              sub="Actionable trades"
+              loading={bollingerLoading}
+              highlight
+            />
+          </div>
+        ) : (
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+            <KPICard
+              label="Universe"
+              value={data?.stats.totalScanned ?? 0}
+              icon={<BarChart3 className="w-4 h-4" />}
+              sub="₹1K Cr+ market cap"
+              loading={isLoading}
+            />
+            <KPICard
+              label="Above 200 DMA"
+              value={data?.stats.above200dma ?? 0}
+              icon={<TrendingDown className="w-4 h-4" />}
+              sub="Uptrend filter"
+              loading={isLoading}
+            />
+            <KPICard
+              label="Dipped > 3%"
+              value={data?.stats.dippedOver3pct ?? 0}
+              icon={<Activity className="w-4 h-4" />}
+              sub="Signal day"
+              loading={isLoading}
+            />
+            <KPICard
+              label="Vol Filter Pass"
+              value={data?.stats.passedVolFilter ?? 0}
+              icon={<Filter className="w-4 h-4" />}
+              sub="ATR% > 3"
+              loading={isLoading}
+            />
+            <KPICard
+              label="Signals"
+              value={data?.stats.signalsGenerated ?? 0}
+              icon={<Target className="w-4 h-4" />}
+              sub="Actionable trades"
+              loading={isLoading}
+              highlight
+            />
+          </div>
+        )}
 
         {/* Main Content */}
         <Tabs value={activeTab} onValueChange={setActiveTab}>
@@ -346,6 +408,10 @@ export default function Dashboard() {
             <TabsTrigger value="zerodha" className="text-xs" data-testid="tab-zerodha">
               <Activity className="w-3.5 h-3.5 mr-1.5" />
               Zerodha
+            </TabsTrigger>
+            <TabsTrigger value="logs" className="text-xs" data-testid="tab-logs">
+              <Clock className="w-3.5 h-3.5 mr-1.5" />
+              System Log
             </TabsTrigger>
             <TabsTrigger value="rules" className="text-xs" data-testid="tab-rules">
               <Info className="w-3.5 h-3.5 mr-1.5" />
@@ -632,6 +698,11 @@ export default function Dashboard() {
           {/* ZERODHA TAB */}
           <TabsContent value="zerodha" className="mt-4">
             <ZerodhaTab />
+          </TabsContent>
+
+          {/* SYSTEM LOG TAB */}
+          <TabsContent value="logs" className="mt-4">
+            <SystemLogTab />
           </TabsContent>
 
           {/* RULES TAB */}
