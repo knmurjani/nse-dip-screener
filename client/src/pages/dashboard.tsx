@@ -212,18 +212,18 @@ export default function Dashboard() {
               width="28"
               height="28"
               fill="none"
-              stroke="currentColor"
-              strokeWidth="2"
               className="text-primary"
-              aria-label="Dip Screener logo"
+              aria-label="Flameback-Perplexity logo"
             >
-              <polyline points="4,22 10,16 16,20 22,8 28,14" strokeLinecap="round" strokeLinejoin="round" />
-              <circle cx="22" cy="8" r="3" fill="currentColor" stroke="none" />
-              <line x1="4" y1="28" x2="28" y2="28" strokeWidth="1.5" opacity="0.3" />
+              {/* Flame */}
+              <path d="M16 4c0 0-6 6-6 12a6 6 0 0 0 12 0c0-6-6-12-6-12z" fill="currentColor" opacity="0.2" stroke="currentColor" strokeWidth="1.5" />
+              <path d="M16 10c0 0-3 3-3 6a3 3 0 0 0 6 0c0-3-3-6-3-6z" fill="currentColor" opacity="0.5" />
+              {/* Pulse line */}
+              <polyline points="2,26 8,26 11,22 14,28 17,24 20,26 28,26" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
             </svg>
             <div>
               <h1 className="text-sm font-semibold tracking-tight leading-none">
-                NSE Dip Screener
+                Flameback-Perplexity
               </h1>
               <p className="text-[11px] text-muted-foreground leading-none mt-0.5">
                 {strategyName}
