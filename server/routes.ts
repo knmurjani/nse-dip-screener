@@ -461,6 +461,9 @@ export async function registerRoutes(
       status: "ok",
       kite: isAuthenticated(),
       timestamp: new Date().toISOString(),
+      dbPath: DB_PATH,
+      volumeMounted: !!process.env.RAILWAY_VOLUME_MOUNT_PATH,
+      volumePath: process.env.RAILWAY_VOLUME_MOUNT_PATH || "none",
     });
   });
 
