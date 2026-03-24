@@ -12,17 +12,27 @@ export function getKite(): KiteConnect {
   return kite;
 }
 
-let kiteApiWorking = true; // Track if Kite API calls actually succeed
+let kiteApiWorking = true;
+let lastKiteError = "";
 
-export function markKiteFailed() {
+export function markKiteFailed(reason?: string) {
   kiteApiWorking = false;
-  console.log("[Kite] API calls failing — marking as unavailable, falling back to Yahoo");
+  lastKiteError = reason || "API call failed";
+  console.log("[Kite] Marked unavailable:", lastKiteError);
 }
 
 export function isAuthenticated(): boolean {
   if (!accessToken) return false;
   if (!kiteApiWorking) return false;
   return true;
+}
+
+export function getKiteStatus(): { connected: boolean; token: boolean; error: string } {
+  return {
+    connected: kiteApiWorking && !!accessToken,
+    token: !!accessToken,
+    error: !accessToken ? "No access token set" : !kiteApiWorking ? lastKiteError : "",
+  };
 }
 
 export function getLoginURL(): string {
@@ -47,8 +57,10 @@ export async function generateSession(requestToken: string): Promise<{
 export function setAccessToken(token: string) {
   accessToken = token;
   tokenExpiry = new Date().toISOString().split("T")[0];
+  kiteApiWorking = true; // Reset — assume new token works
+  lastKiteError = "";
   kite.setAccessToken(token);
-  console.log("[Kite] Access token set manually");
+  console.log("[Kite] Access token set — connection restored");
 }
 
 export { API_KEY, API_SECRET };

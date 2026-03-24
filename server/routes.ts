@@ -2,7 +2,7 @@ import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { runScreener, clearCache } from "./screener";
 import { startScheduler } from "./scheduler";
-import { getLoginURL, generateSession, setAccessToken, isAuthenticated, getKite } from "./kite";
+import { getLoginURL, generateSession, setAccessToken, isAuthenticated, getKite, getKiteStatus } from "./kite";
 import { getBacktestResult, clearBacktestCache } from "./backtest";
 import { getFilterBreakdown, clearFilterBreakdownCache } from "./filter-breakdown";
 import { getPortfolioSummary, runDailyLifecycle } from "./live-portfolio";
@@ -16,7 +16,11 @@ export async function registerRoutes(
 
   // Get auth status
   app.get("/api/kite/status", (_req, res) => {
-    res.json({ authenticated: isAuthenticated() });
+    const status = getKiteStatus();
+    res.json({
+      ...status,
+      loginUrl: getLoginURL(),
+    });
   });
 
   // Get login URL

@@ -47,6 +47,7 @@ import { PerplexityAttribution } from "@/components/PerplexityAttribution";
 import BacktestTab from "./backtest-tab";
 import FiltersTab from "./filters-tab";
 import PositionsTab from "./positions-tab";
+import KiteStatusBanner from "@/components/kite-status";
 
 interface ScreenerData {
   lastUpdated: string;
@@ -256,6 +257,9 @@ export default function Dashboard() {
       </header>
 
       <main className="max-w-[1400px] mx-auto px-4 sm:px-6 py-5 space-y-5">
+        {/* Kite Connection Status */}
+        <KiteStatusBanner />
+
         {/* KPI Cards */}
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
           <KPICard
