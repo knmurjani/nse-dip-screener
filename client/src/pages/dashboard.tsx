@@ -47,7 +47,7 @@ import { PerplexityAttribution } from "@/components/PerplexityAttribution";
 import BacktestTab from "./backtest-tab";
 import FiltersTab from "./filters-tab";
 import PositionsTab from "./positions-tab";
-import KiteStatusBanner from "@/components/kite-status";
+import KiteStatusBanner, { ZerodhaTab } from "@/components/kite-status";
 
 interface ScreenerData {
   lastUpdated: string;
@@ -302,7 +302,7 @@ export default function Dashboard() {
 
         {/* Main Content */}
         <Tabs value={activeTab} onValueChange={setActiveTab}>
-          <TabsList className="grid w-full max-w-3xl grid-cols-6 h-9">
+          <TabsList className="flex w-full max-w-4xl h-9 overflow-x-auto">
             <TabsTrigger value="signals" className="text-xs" data-testid="tab-signals">
               <Target className="w-3.5 h-3.5 mr-1.5" />
               Signals ({data?.signals.length ?? 0})
@@ -322,6 +322,10 @@ export default function Dashboard() {
             <TabsTrigger value="filters" className="text-xs" data-testid="tab-filters">
               <Filter className="w-3.5 h-3.5 mr-1.5" />
               Filters
+            </TabsTrigger>
+            <TabsTrigger value="zerodha" className="text-xs" data-testid="tab-zerodha">
+              <Activity className="w-3.5 h-3.5 mr-1.5" />
+              Zerodha
             </TabsTrigger>
             <TabsTrigger value="rules" className="text-xs" data-testid="tab-rules">
               <Info className="w-3.5 h-3.5 mr-1.5" />
@@ -707,6 +711,11 @@ export default function Dashboard() {
           {/* BACKTEST TAB */}
           <TabsContent value="backtest" className="mt-4">
             <BacktestTab />
+          </TabsContent>
+
+          {/* ZERODHA TAB */}
+          <TabsContent value="zerodha" className="mt-4">
+            <ZerodhaTab />
           </TabsContent>
 
           {/* RULES TAB */}
