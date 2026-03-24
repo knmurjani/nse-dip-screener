@@ -46,7 +46,6 @@ import type { ScreenerStock, UniverseStock } from "@shared/schema";
 import { PerplexityAttribution } from "@/components/PerplexityAttribution";
 import BacktestTab from "./backtest-tab";
 import FiltersTab from "./filters-tab";
-import PositionsTab from "./positions-tab";
 
 interface ScreenerData {
   lastUpdated: string;
@@ -298,26 +297,22 @@ export default function Dashboard() {
 
         {/* Main Content */}
         <Tabs value={activeTab} onValueChange={setActiveTab}>
-          <TabsList className="grid w-full max-w-3xl grid-cols-6 h-9">
+          <TabsList className="grid w-full max-w-2xl grid-cols-5 h-9">
             <TabsTrigger value="signals" className="text-xs" data-testid="tab-signals">
               <Target className="w-3.5 h-3.5 mr-1.5" />
-              Signals ({data?.signals.length ?? 0})
+              Live ({data?.signals.length ?? 0})
             </TabsTrigger>
             <TabsTrigger value="universe" className="text-xs" data-testid="tab-universe">
               <BarChart3 className="w-3.5 h-3.5 mr-1.5" />
               Universe ({data?.universe.length ?? 0})
             </TabsTrigger>
-            <TabsTrigger value="positions" className="text-xs" data-testid="tab-positions">
+            <TabsTrigger value="backtest" className="text-xs" data-testid="tab-backtest">
               <BarChart3 className="w-3.5 h-3.5 mr-1.5" />
-              Positions
+              Backtest
             </TabsTrigger>
             <TabsTrigger value="filters" className="text-xs" data-testid="tab-filters">
               <Filter className="w-3.5 h-3.5 mr-1.5" />
               Filters
-            </TabsTrigger>
-            <TabsTrigger value="backtest" className="text-xs" data-testid="tab-backtest">
-              <BarChart3 className="w-3.5 h-3.5 mr-1.5" />
-              Backtest
             </TabsTrigger>
             <TabsTrigger value="rules" className="text-xs" data-testid="tab-rules">
               <Info className="w-3.5 h-3.5 mr-1.5" />
@@ -688,11 +683,6 @@ export default function Dashboard() {
                 )}
               </CardContent>
             </Card>
-          </TabsContent>
-
-          {/* POSITIONS TAB */}
-          <TabsContent value="positions" className="mt-4">
-            <PositionsTab />
           </TabsContent>
 
           {/* FILTERS TAB */}

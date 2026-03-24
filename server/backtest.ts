@@ -1,75 +1,91 @@
 import { getKite, isAuthenticated } from "./kite";
 import { NSE_UNIVERSE } from "./nse-universe";
 
-// ─── Yahoo Finance fallback ───
 const yfRaw = require("yahoo-finance2");
 const YFClass = yfRaw.default || yfRaw;
-const yahooFinance =
-  typeof YFClass === "function"
-    ? new YFClass({ suppressNotices: ["yahooSurvey", "ripHistorical"] })
-    : YFClass;
+const yahooFinance = typeof YFClass === "function"
+  ? new YFClass({ suppressNotices: ["yahooSurvey", "ripHistorical"] }) : YFClass;
 
 // ─── Types ───
 
-interface Bar {
-  date: string; // YYYY-MM-DD
-  open: number;
-  high: number;
-  low: number;
-  close: number;
-  volume: number;
-}
+interface Bar { date: string; open: number; high: number; low: number; close: number; volume: number; }
 
 export interface Trade {
+  id: number;
   symbol: string;
   name: string;
   signalDate: string;
   entryDate: string;
-  entryTime: string; // IST timestamp
+  entryTime: string;
   entryPrice: number;
+  shares: number;
+  capitalAllocated: number;
   exitDate: string;
-  exitTime: string; // IST timestamp
+  exitTime: string;
   exitPrice: number;
-  exitReason: "profit_target" | "price_action" | "time_exit";
+  exitReason: "profit_target" | "price_action_close_above_prev_high" | "time_exit_10_days";
+  exitReasonDetail: string;
   pnl: number;
   pnlPct: number;
   daysHeld: number;
   setupScore: number;
+  atr5AtEntry: number;
+  profitTargetPrice: number;
+  portfolioValueAtEntry: number;
+  portfolioValueAtExit: number;
 }
 
-export interface EquityCurvePoint {
+export interface DailySnapshot {
   date: string;
-  equity: number;
-  drawdownPct: number;
+  portfolioValue: number;
+  cash: number;
+  investedValue: number;
+  unrealizedPnl: number;
+  realizedPnl: number;
+  openPositions: number;
+  equityPct: number;       // % return from initial
+  drawdownPct: number;     // from peak
+  niftyClose: number;
+  niftyPct: number;        // % return from nifty start
+}
+
+export interface BacktestSummary {
+  initialCapital: number;
+  finalPortfolioValue: number;
+  totalReturn: number;
+  totalReturnPct: number;
+  annualizedReturnPct: number;
+  totalTrades: number;
+  winningTrades: number;
+  losingTrades: number;
+  winningPct: number;
+  highestWinPct: number;
+  highestWinSymbol: string;
+  highestLossPct: number;
+  highestLossSymbol: string;
+  avgWinPct: number;
+  avgLossPct: number;
+  avgWinToLossRatio: number;
+  avgTradeDurationDays: number;
+  sharpeRatio: number;
+  maxDrawdownPct: number;
+  maxDrawdownDate: string;
+  profitFactor: number;
+  maxConsecutiveWins: number;
+  maxConsecutiveLosses: number;
+  correlationToNifty: number;
+  maxPositions: number;
+  positionSizePct: number;
+  capitalPerTrade: number;
+  totalDays: number;
+  dataSource: string;
 }
 
 export interface BacktestResult {
   trades: Trade[];
-  summary: {
-    initialCapital: number;
-    finalEquity: number;
-    totalReturn: number;
-    totalReturnPct: number;
-    totalTrades: number;
-    winners: number;
-    losers: number;
-    winRate: number;
-    avgWinPct: number;
-    avgLossPct: number;
-    avgTradePnl: number;
-    avgTradePct: number;
-    maxDrawdownPct: number;
-    profitFactor: number;
-    sharpeRatio: number;
-    maxConsecutiveWins: number;
-    maxConsecutiveLosses: number;
-    avgDaysHeld: number;
-    capitalPerTrade: number;
-    maxPositions: number;
-  };
-  equityCurve: EquityCurvePoint[];
+  dailySnapshots: DailySnapshot[];
+  summary: BacktestSummary;
   period: { from: string; to: string };
-  dataSource: string;
 }
 
 // ─── Data fetching ───
@@ -82,19 +98,13 @@ async function loadKiteInstruments() {
     const kite = getKite();
     const instruments = await kite.getInstruments("NSE");
     for (const inst of instruments) {
-      if (inst.segment === "NSE" && inst.instrument_type === "EQ") {
+      if (inst.segment === "NSE" && inst.instrument_type === "EQ")
         instrumentMap.set(inst.tradingsymbol, inst.instrument_token);
-      }
     }
   } catch {}
 }
 
-async function fetchHistoricalBars(
-  symbol: string,
-  from: string,
-  to: string
-): Promise<Bar[] | null> {
-  // Try Kite first
+async function fetchBars(symbol: string, from: string, to: string): Promise<Bar[] | null> {
   if (isAuthenticated()) {
     try {
       await loadKiteInstruments();
@@ -102,147 +112,115 @@ async function fetchHistoricalBars(
       const token = instrumentMap.get(clean);
       if (token) {
         const data = await getKite().getHistoricalData(token, "day", from, to);
-        if (data && data.length > 0) {
-          return data
-            .filter((d: any) => d.close > 0)
-            .map((d: any) => ({
-              date: new Date(d.date).toISOString().split("T")[0],
-              open: d.open,
-              high: d.high,
-              low: d.low,
-              close: d.close,
-              volume: d.volume,
-            }));
-        }
+        if (data && data.length > 0)
+          return data.filter((d: any) => d.close > 0).map((d: any) => ({
+            date: new Date(d.date).toISOString().split("T")[0],
+            open: d.open, high: d.high, low: d.low, close: d.close, volume: d.volume,
+          }));
       }
     } catch {}
   }
-
-  // Yahoo Finance fallback
   try {
-    const result = await yahooFinance.chart(symbol, {
-      period1: new Date(from),
-      period2: new Date(to),
-      interval: "1d",
-    });
+    const result = await yahooFinance.chart(symbol, { period1: new Date(from), period2: new Date(to), interval: "1d" });
     if (!result?.quotes) return null;
-    return result.quotes
-      .filter((q: any) => q.close !== null && q.close > 0 && q.high !== null)
+    return result.quotes.filter((q: any) => q.close !== null && q.close > 0 && q.high !== null)
       .map((q: any) => ({
         date: new Date(q.date).toISOString().split("T")[0],
-        open: q.open ?? q.close,
-        high: q.high,
-        low: q.low,
-        close: q.close,
-        volume: q.volume ?? 0,
+        open: q.open ?? q.close, high: q.high, low: q.low, close: q.close, volume: q.volume ?? 0,
       }));
-  } catch {
-    return null;
-  }
+  } catch { return null; }
 }
 
-// ─── Technical indicators ───
-
-function computeSMA(closes: number[], period: number): number {
-  if (closes.length < period) return 0;
-  return closes.slice(-period).reduce((s, c) => s + c, 0) / period;
-}
+// ─── Indicators ───
 
 function computeATR(bars: Bar[], idx: number, period: number): number {
   if (idx < period) return 0;
   let sum = 0;
   for (let i = idx - period + 1; i <= idx; i++) {
-    const tr = Math.max(
-      bars[i].high - bars[i].low,
+    sum += Math.max(bars[i].high - bars[i].low,
       Math.abs(bars[i].high - bars[i - 1].close),
-      Math.abs(bars[i].low - bars[i - 1].close)
-    );
-    sum += tr;
+      Math.abs(bars[i].low - bars[i - 1].close));
   }
   return sum / period;
 }
 
-// ─── Backtest engine ───
+function computeSMA(bars: Bar[], idx: number, period: number): number {
+  if (idx < period - 1) return 0;
+  let sum = 0;
+  for (let i = idx - period + 1; i <= idx; i++) sum += bars[i].close;
+  return sum / period;
+}
+
+// ─── Correlation ───
+
+function pearsonCorrelation(x: number[], y: number[]): number {
+  const n = Math.min(x.length, y.length);
+  if (n < 10) return 0;
+  const xSlice = x.slice(0, n), ySlice = y.slice(0, n);
+  const xMean = xSlice.reduce((s, v) => s + v, 0) / n;
+  const yMean = ySlice.reduce((s, v) => s + v, 0) / n;
+  let num = 0, denX = 0, denY = 0;
+  for (let i = 0; i < n; i++) {
+    const dx = xSlice[i] - xMean, dy = ySlice[i] - yMean;
+    num += dx * dy; denX += dx * dx; denY += dy * dy;
+  }
+  return denX > 0 && denY > 0 ? num / Math.sqrt(denX * denY) : 0;
+}
+
+// ─── Backtest Engine ───
 
 interface OpenPosition {
-  symbol: string;
-  name: string;
-  signalDate: string;
-  entryDate: string;
-  entryPrice: number;
-  setupScore: number;
-  atr5AtEntry: number;
-  tradingDaysHeld: number;
-  capitalAllocated: number;
-  shares: number;
+  id: number; symbol: string; name: string; signalDate: string; entryDate: string;
+  entryPrice: number; shares: number; capitalAllocated: number;
+  setupScore: number; atr5: number; tradingDaysHeld: number; profitTarget: number;
+  portfolioValueAtEntry: number;
 }
 
 export async function runBacktest(params: {
-  capitalRs?: number;
-  maxPositions?: number;
-  lookbackMonths?: number;
+  capitalRs?: number; maxPositions?: number; lookbackYears?: number;
 }): Promise<BacktestResult> {
-  const CAPITAL = params.capitalRs || 1000000; // ₹10 lakh
-  const MAX_POS = params.maxPositions || 20;
-  const LOOKBACK = params.lookbackMonths || 12;
+  const CAPITAL = params.capitalRs || 1000000;
+  const MAX_POS = params.maxPositions || 10;
+  const YEARS = params.lookbackYears || 5;
 
   const toDate = new Date();
   const fromDate = new Date();
-  fromDate.setMonth(fromDate.getMonth() - LOOKBACK - 8); // extra 8 months for 200-DMA warmup
+  fromDate.setFullYear(fromDate.getFullYear() - YEARS - 1); // extra year for 200-DMA warmup
 
   const from = fromDate.toISOString().split("T")[0];
   const to = toDate.toISOString().split("T")[0];
 
   const backtestStart = new Date();
-  backtestStart.setMonth(backtestStart.getMonth() - LOOKBACK);
-  const backtestStartStr = backtestStart.toISOString().split("T")[0];
+  backtestStart.setFullYear(backtestStart.getFullYear() - YEARS);
+  const startStr = backtestStart.toISOString().split("T")[0];
 
   const useKite = isAuthenticated();
-  console.log(
-    `[Backtest] Starting: ₹${(CAPITAL / 100000).toFixed(1)}L capital, ${MAX_POS} max positions, ${LOOKBACK}mo lookback via ${useKite ? "Kite" : "Yahoo"}`
-  );
+  console.log(`[Backtest] ${YEARS}yr, ₹${(CAPITAL/1e5).toFixed(0)}L, ${MAX_POS} max pos, via ${useKite ? "Kite" : "Yahoo"}`);
 
-  // ─── Fetch all historical data ───
+  // ─── Fetch Nifty 50 for correlation ───
+  const niftyBars = await fetchBars("^NSEI", from, to) || await fetchBars("NIFTY_50.NS", from, to) || [];
+  const niftyByDate: Map<string, number> = new Map();
+  for (const b of niftyBars) niftyByDate.set(b.date, b.close);
+
+  // ─── Fetch all stock data ───
   const allBars: Map<string, Bar[]> = new Map();
   const batchSize = useKite ? 8 : 5;
-
   for (let i = 0; i < NSE_UNIVERSE.length; i += batchSize) {
     const batch = NSE_UNIVERSE.slice(i, i + batchSize);
-    await Promise.allSettled(
-      batch.map(async (stock) => {
-        const bars = await fetchHistoricalBars(stock.symbol, from, to);
-        if (bars && bars.length >= 200) {
-          allBars.set(stock.symbol, bars);
-        }
-      })
-    );
-    if (i + batchSize < NSE_UNIVERSE.length) {
-      await new Promise((r) => setTimeout(r, useKite ? 100 : 150));
-    }
-    if ((i + batchSize) % 50 === 0) {
-      console.log(`[Backtest] Fetched ${Math.min(i + batchSize, NSE_UNIVERSE.length)} / ${NSE_UNIVERSE.length} stocks...`);
-    }
+    await Promise.allSettled(batch.map(async (stock) => {
+      const bars = await fetchBars(stock.symbol, from, to);
+      if (bars && bars.length >= 200) allBars.set(stock.symbol, bars);
+    }));
+    if (i + batchSize < NSE_UNIVERSE.length) await new Promise(r => setTimeout(r, useKite ? 80 : 120));
+    if ((i + batchSize) % 100 === 0) console.log(`[Backtest] Fetched ${Math.min(i + batchSize, NSE_UNIVERSE.length)} / ${NSE_UNIVERSE.length}...`);
   }
+  console.log(`[Backtest] Data for ${allBars.size} stocks. Simulating ${YEARS} years...`);
 
-  console.log(`[Backtest] Data ready for ${allBars.size} stocks. Simulating...`);
-
-  // ─── Build unified date index ───
+  // ─── Build date index ───
   const allDates = new Set<string>();
-  for (const bars of allBars.values()) {
-    for (const b of bars) {
-      if (b.date >= backtestStartStr) allDates.add(b.date);
-    }
-  }
+  for (const bars of allBars.values()) for (const b of bars) if (b.date >= startStr) allDates.add(b.date);
   const sortedDates = Array.from(allDates).sort();
 
-  // ─── Simulation ───
-  let cash = CAPITAL;
-  const trades: Trade[] = [];
-  const openPositions: OpenPosition[] = [];
-  const equityCurve: EquityCurvePoint[] = [];
-  let peakEquity = CAPITAL;
-
-  // Build bar index for quick lookup
   const barIndex: Map<string, Map<string, number>> = new Map();
   for (const [symbol, bars] of allBars.entries()) {
     const idx = new Map<string, number>();
@@ -250,23 +228,40 @@ export async function runBacktest(params: {
     barIndex.set(symbol, idx);
   }
 
+  // ─── Simulation ───
+  let cash = CAPITAL;
+  let realizedPnl = 0;
+  let tradeId = 0;
+  const trades: Trade[] = [];
+  const openPositions: OpenPosition[] = [];
+  const dailySnapshots: DailySnapshot[] = [];
+  let peakValue = CAPITAL;
+  const niftyStart = niftyByDate.get(sortedDates[0]) || 0;
+
   for (let d = 0; d < sortedDates.length; d++) {
     const today = sortedDates[d];
-    const yesterday = d > 0 ? sortedDates[d - 1] : null;
 
-    // ─── Check exits on open positions ───
+    // ─── Calculate current portfolio value ───
+    const getCurrentPortfolioValue = (): number => {
+      let invested = 0;
+      for (const pos of openPositions) {
+        const bars = allBars.get(pos.symbol);
+        const idxMap = barIndex.get(pos.symbol);
+        if (!bars || !idxMap) continue;
+        const todayIdx = idxMap.get(today);
+        if (todayIdx === undefined) { invested += pos.capitalAllocated; continue; }
+        invested += bars[todayIdx].close * pos.shares;
+      }
+      return cash + invested;
+    };
+
+    // ─── Check exits (FIFO) ───
     const toClose: number[] = [];
-
     for (let p = 0; p < openPositions.length; p++) {
       const pos = openPositions[p];
-      const bars = allBars.get(pos.symbol + (pos.symbol.endsWith(".NS") ? "" : ""))
-        || allBars.get(pos.symbol);
-      if (!bars) continue;
-
-      const idxMap = barIndex.get(pos.symbol + (pos.symbol.endsWith(".NS") ? "" : ""))
-        || barIndex.get(pos.symbol);
-      if (!idxMap) continue;
-
+      const bars = allBars.get(pos.symbol);
+      const idxMap = barIndex.get(pos.symbol);
+      if (!bars || !idxMap) continue;
       const todayIdx = idxMap.get(today);
       if (todayIdx === undefined) continue;
 
@@ -276,91 +271,84 @@ export async function runBacktest(params: {
 
       let exitPrice = 0;
       let exitReason: Trade["exitReason"] | null = null;
+      let exitReasonDetail = "";
 
-      // Exit Rule 1: Profit target — close + 0.5 * ATR(5)
-      const profitTarget = pos.entryPrice + 0.5 * pos.atr5AtEntry;
-      if (bar.high >= profitTarget) {
-        exitPrice = profitTarget;
+      // Exit 1: Profit target — entry + 0.5 * ATR(5)
+      if (bar.high >= pos.profitTarget) {
+        exitPrice = pos.profitTarget;
         exitReason = "profit_target";
+        exitReasonDetail = `High ₹${bar.high.toFixed(2)} ≥ Target ₹${pos.profitTarget.toFixed(2)} (Entry ₹${pos.entryPrice.toFixed(2)} + 0.5×ATR ₹${(pos.atr5 * 0.5).toFixed(2)})`;
       }
 
-      // Exit Rule 2: Price action — close > previous day's high
+      // Exit 2: Price action — close > previous day's high
       if (!exitReason && prevBar && bar.close > prevBar.high) {
         exitPrice = bar.close;
-        exitReason = "price_action";
+        exitReason = "price_action_close_above_prev_high";
+        exitReasonDetail = `Close ₹${bar.close.toFixed(2)} > Prev High ₹${prevBar.high.toFixed(2)} — rebound confirmed`;
       }
 
-      // Exit Rule 3: Time-based — 10 trading days
+      // Exit 3: Time-based — 10 trading days
       if (!exitReason && pos.tradingDaysHeld >= 10) {
         exitPrice = bar.close;
-        exitReason = "time_exit";
+        exitReason = "time_exit_10_days";
+        exitReasonDetail = `Held ${pos.tradingDaysHeld} trading days ≥ 10 day limit — forced exit at close ₹${bar.close.toFixed(2)}`;
       }
 
       if (exitReason) {
         const pnl = (exitPrice - pos.entryPrice) * pos.shares;
         const pnlPct = ((exitPrice - pos.entryPrice) / pos.entryPrice) * 100;
-
-        // Entry: limit order fills during market hours (assume 9:15-9:30 AM IST)
-        // Exit: profit target = intraday hit, price action = at close 3:30 PM, time exit = at close 3:30 PM
-        const entryTime = `${pos.entryDate} 09:20:00 IST`;
-        let exitTime = `${today} 15:30:00 IST`;
-        if (exitReason === "profit_target") exitTime = `${today} (intraday)`;
+        realizedPnl += pnl;
+        cash += pos.shares * exitPrice;
+        const portfolioValueAtExit = getCurrentPortfolioValue();
 
         trades.push({
+          id: ++tradeId,
           symbol: pos.symbol.replace(".NS", ""),
           name: pos.name,
           signalDate: pos.signalDate,
           entryDate: pos.entryDate,
-          entryTime,
+          entryTime: `${pos.entryDate} 09:20:00 IST`,
           entryPrice: Math.round(pos.entryPrice * 100) / 100,
+          shares: pos.shares,
+          capitalAllocated: Math.round(pos.capitalAllocated),
           exitDate: today,
-          exitTime,
+          exitTime: exitReason === "profit_target" ? `${today} (intraday)` : `${today} 15:30:00 IST`,
           exitPrice: Math.round(exitPrice * 100) / 100,
           exitReason,
+          exitReasonDetail,
           pnl: Math.round(pnl),
           pnlPct: Math.round(pnlPct * 100) / 100,
           daysHeld: pos.tradingDaysHeld,
           setupScore: pos.setupScore,
+          atr5AtEntry: Math.round(pos.atr5 * 100) / 100,
+          profitTargetPrice: Math.round(pos.profitTarget * 100) / 100,
+          portfolioValueAtEntry: Math.round(pos.portfolioValueAtEntry),
+          portfolioValueAtExit: Math.round(portfolioValueAtExit),
         });
-
-        cash += pos.capitalAllocated + pnl;
         toClose.push(p);
       }
     }
-
-    // Remove closed positions (reverse order to keep indices valid)
-    for (const idx of toClose.reverse()) {
-      openPositions.splice(idx, 1);
-    }
+    for (const idx of toClose.reverse()) openPositions.splice(idx, 1);
 
     // ─── Check for new signals ───
-    if (openPositions.length < MAX_POS) {
+    if (openPositions.length < MAX_POS && d + 1 < sortedDates.length) {
       const candidates: {
-        symbol: string;
-        name: string;
-        signalDate: string;
-        close: number;
-        atr5: number;
-        setupScore: number;
-        limitPrice: number;
+        symbol: string; name: string; signalDate: string; close: number;
+        atr5: number; setupScore: number; limitPrice: number; profitTarget: number;
       }[] = [];
 
       for (const [symbol, bars] of allBars.entries()) {
-        // Skip if already holding
-        if (openPositions.some((p) => p.symbol === symbol)) continue;
-
+        if (openPositions.some(p => p.symbol === symbol)) continue;
         const idxMap = barIndex.get(symbol);
         if (!idxMap) continue;
-
         const todayIdx = idxMap.get(today);
         if (todayIdx === undefined || todayIdx < 201) continue;
 
         const bar = bars[todayIdx];
         const prevBar = bars[todayIdx - 1];
 
-        // 200 DMA
-        const closes = bars.slice(todayIdx - 199, todayIdx + 1).map((b) => b.close);
-        const dma200 = computeSMA(closes, 200);
+        // 200 DMA filter
+        const dma200 = computeSMA(bars, todayIdx, 200);
         if (bar.close <= dma200) continue;
 
         // Dip > 3%
@@ -373,193 +361,226 @@ export async function runBacktest(params: {
         const atrPctClose = (100 * atr5) / bar.close;
         if (atrPctClose <= 3) continue;
 
-        const limitPrice = bar.close - 0.9 * atr5;
-        const setupScore = atr5 / bar.close;
-
         candidates.push({
           symbol,
-          name: NSE_UNIVERSE.find((s) => s.symbol === symbol)?.name || symbol.replace(".NS", ""),
+          name: NSE_UNIVERSE.find(s => s.symbol === symbol)?.name || symbol.replace(".NS", ""),
           signalDate: today,
           close: bar.close,
           atr5,
-          setupScore,
-          limitPrice,
+          setupScore: atr5 / bar.close,
+          limitPrice: bar.close - 0.9 * atr5,
+          profitTarget: bar.close + 0.5 * atr5,
         });
       }
 
-      // Sort by setup score (highest first), take up to available slots
+      // Sort by conviction (setup score) — highest first
       candidates.sort((a, b) => b.setupScore - a.setupScore);
       const slotsAvailable = MAX_POS - openPositions.length;
       const toEnter = candidates.slice(0, slotsAvailable);
 
-      // Next trading day: check if limit order fills
-      if (d + 1 < sortedDates.length) {
-        const nextDay = sortedDates[d + 1];
+      const nextDay = sortedDates[d + 1];
 
-        for (const cand of toEnter) {
-          const bars = allBars.get(cand.symbol);
-          if (!bars) continue;
-          const idxMap = barIndex.get(cand.symbol);
-          if (!idxMap) continue;
-          const nextIdx = idxMap.get(nextDay);
-          if (nextIdx === undefined) continue;
+      for (const cand of toEnter) {
+        const bars = allBars.get(cand.symbol);
+        const idxMap = barIndex.get(cand.symbol);
+        if (!bars || !idxMap) continue;
+        const nextIdx = idxMap.get(nextDay);
+        if (nextIdx === undefined) continue;
+        const nextBar = bars[nextIdx];
 
-          const nextBar = bars[nextIdx];
+        // Check if limit order fills
+        if (nextBar.low <= cand.limitPrice) {
+          // Dynamic position sizing: (invested value + realized P&L) / MAX_POS
+          const currentPortfolio = getCurrentPortfolioValue();
+          const positionSize = currentPortfolio / MAX_POS;
+          const entryPrice = cand.limitPrice;
+          const shares = Math.floor(positionSize / entryPrice);
+          if (shares <= 0 || cash < shares * entryPrice) continue;
 
-          // Check if limit price is hit (low <= limitPrice)
-          if (nextBar.low <= cand.limitPrice) {
-            const entryPrice = cand.limitPrice;
-            const capitalPerTrade = CAPITAL / MAX_POS;
+          const allocated = shares * entryPrice;
+          cash -= allocated;
 
-            if (cash >= capitalPerTrade) {
-              const shares = Math.floor(capitalPerTrade / entryPrice);
-              if (shares <= 0) continue;
-
-              const allocated = shares * entryPrice;
-              cash -= allocated;
-
-              openPositions.push({
-                symbol: cand.symbol,
-                name: cand.name,
-                signalDate: cand.signalDate,
-                entryDate: nextDay,
-                entryPrice,
-                setupScore: Math.round(cand.setupScore * 10000) / 10000,
-                atr5AtEntry: cand.atr5,
-                tradingDaysHeld: 0,
-                capitalAllocated: allocated,
-                shares,
-              });
-            }
-          }
+          openPositions.push({
+            id: ++tradeId,
+            symbol: cand.symbol,
+            name: cand.name,
+            signalDate: cand.signalDate,
+            entryDate: nextDay,
+            entryPrice,
+            shares,
+            capitalAllocated: allocated,
+            setupScore: Math.round(cand.setupScore * 10000) / 10000,
+            atr5: cand.atr5,
+            tradingDaysHeld: 0,
+            profitTarget: cand.profitTarget,
+            portfolioValueAtEntry: currentPortfolio,
+          });
         }
       }
     }
 
-    // ─── Equity curve ───
-    let openPnl = 0;
+    // ─── Daily snapshot ───
+    let investedValue = 0;
+    let unrealizedPnl = 0;
     for (const pos of openPositions) {
       const bars = allBars.get(pos.symbol);
-      if (!bars) continue;
       const idxMap = barIndex.get(pos.symbol);
-      if (!idxMap) continue;
+      if (!bars || !idxMap) continue;
       const todayIdx = idxMap.get(today);
       if (todayIdx === undefined) continue;
-      openPnl += (bars[todayIdx].close - pos.entryPrice) * pos.shares;
+      const mv = bars[todayIdx].close * pos.shares;
+      investedValue += mv;
+      unrealizedPnl += (bars[todayIdx].close - pos.entryPrice) * pos.shares;
     }
 
-    const equity = cash + openPositions.reduce((s, p) => s + p.capitalAllocated, 0) + openPnl;
-    peakEquity = Math.max(peakEquity, equity);
-    const dd = ((peakEquity - equity) / peakEquity) * 100;
+    const portfolioValue = cash + investedValue;
+    peakValue = Math.max(peakValue, portfolioValue);
+    const dd = ((peakValue - portfolioValue) / peakValue) * 100;
+    const equityPct = ((portfolioValue - CAPITAL) / CAPITAL) * 100;
+    const niftyClose = niftyByDate.get(today) || 0;
+    const niftyPct = niftyStart > 0 ? ((niftyClose - niftyStart) / niftyStart) * 100 : 0;
 
-    // Sample equity curve (every 5th day to keep payload small)
-    if (d % 5 === 0 || d === sortedDates.length - 1) {
-      equityCurve.push({
-        date: today,
-        equity: Math.round(equity),
-        drawdownPct: Math.round(dd * 100) / 100,
-      });
-    }
+    dailySnapshots.push({
+      date: today,
+      portfolioValue: Math.round(portfolioValue),
+      cash: Math.round(cash),
+      investedValue: Math.round(investedValue),
+      unrealizedPnl: Math.round(unrealizedPnl),
+      realizedPnl: Math.round(realizedPnl),
+      openPositions: openPositions.length,
+      equityPct: Math.round(equityPct * 100) / 100,
+      drawdownPct: Math.round(dd * 100) / 100,
+      niftyClose: Math.round(niftyClose * 100) / 100,
+      niftyPct: Math.round(niftyPct * 100) / 100,
+    });
   }
 
-  // ─── Force close any remaining open positions at last date ───
+  // ─── Force close remaining positions ───
   const lastDate = sortedDates[sortedDates.length - 1];
-  for (const pos of openPositions) {
+  for (const pos of [...openPositions]) {
     const bars = allBars.get(pos.symbol);
     if (!bars) continue;
     const lastBar = bars[bars.length - 1];
     const pnl = (lastBar.close - pos.entryPrice) * pos.shares;
     const pnlPct = ((lastBar.close - pos.entryPrice) / pos.entryPrice) * 100;
+    realizedPnl += pnl;
+    cash += pos.shares * lastBar.close;
+
     trades.push({
+      id: ++tradeId,
       symbol: pos.symbol.replace(".NS", ""),
       name: pos.name,
       signalDate: pos.signalDate,
       entryDate: pos.entryDate,
       entryTime: `${pos.entryDate} 09:20:00 IST`,
       entryPrice: Math.round(pos.entryPrice * 100) / 100,
+      shares: pos.shares,
+      capitalAllocated: Math.round(pos.capitalAllocated),
       exitDate: lastDate,
       exitTime: `${lastDate} 15:30:00 IST`,
       exitPrice: Math.round(lastBar.close * 100) / 100,
-      exitReason: "time_exit",
+      exitReason: "time_exit_10_days",
+      exitReasonDetail: `Backtest ended — force closed at ₹${lastBar.close.toFixed(2)}`,
       pnl: Math.round(pnl),
       pnlPct: Math.round(pnlPct * 100) / 100,
       daysHeld: pos.tradingDaysHeld,
       setupScore: pos.setupScore,
+      atr5AtEntry: Math.round(pos.atr5 * 100) / 100,
+      profitTargetPrice: Math.round(pos.profitTarget * 100) / 100,
+      portfolioValueAtEntry: Math.round(pos.portfolioValueAtEntry),
+      portfolioValueAtExit: Math.round(cash),
     });
-    cash += pos.capitalAllocated + pnl;
   }
 
-  // ─── Performance summary ───
-  const finalEquity = cash;
-  const totalReturn = finalEquity - CAPITAL;
-  const winners = trades.filter((t) => t.pnl > 0);
-  const losers = trades.filter((t) => t.pnl <= 0);
+  // ─── Summary stats ───
+  const finalValue = cash;
+  const totalReturn = finalValue - CAPITAL;
+  const totalReturnPct = (totalReturn / CAPITAL) * 100;
+  const totalDays = sortedDates.length;
+  const yearsActual = totalDays / 252;
+  const annualizedReturn = yearsActual > 0 ? (Math.pow(finalValue / CAPITAL, 1 / yearsActual) - 1) * 100 : 0;
 
-  const avgWinPct = winners.length > 0
-    ? winners.reduce((s, t) => s + t.pnlPct, 0) / winners.length : 0;
-  const avgLossPct = losers.length > 0
-    ? losers.reduce((s, t) => s + t.pnlPct, 0) / losers.length : 0;
+  const winners = trades.filter(t => t.pnl > 0);
+  const losers = trades.filter(t => t.pnl <= 0);
+  const avgWinPct = winners.length > 0 ? winners.reduce((s, t) => s + t.pnlPct, 0) / winners.length : 0;
+  const avgLossPct = losers.length > 0 ? Math.abs(losers.reduce((s, t) => s + t.pnlPct, 0) / losers.length) : 0;
+
+  const highestWin = winners.length > 0 ? winners.reduce((best, t) => t.pnlPct > best.pnlPct ? t : best) : null;
+  const highestLoss = losers.length > 0 ? losers.reduce((worst, t) => t.pnlPct < worst.pnlPct ? t : worst) : null;
 
   const grossProfit = winners.reduce((s, t) => s + t.pnl, 0);
   const grossLoss = Math.abs(losers.reduce((s, t) => s + t.pnl, 0));
-  const profitFactor = grossLoss > 0 ? grossProfit / grossLoss : grossProfit > 0 ? Infinity : 0;
 
-  // Max consecutive wins/losses
-  let maxConsWins = 0, maxConsLosses = 0, consW = 0, consL = 0;
+  // Sharpe (daily returns)
+  const dailyReturns: number[] = [];
+  for (let i = 1; i < dailySnapshots.length; i++) {
+    dailyReturns.push((dailySnapshots[i].portfolioValue - dailySnapshots[i-1].portfolioValue) / dailySnapshots[i-1].portfolioValue);
+  }
+  const avgDailyReturn = dailyReturns.length > 0 ? dailyReturns.reduce((s, r) => s + r, 0) / dailyReturns.length : 0;
+  const stdDailyReturn = dailyReturns.length > 1
+    ? Math.sqrt(dailyReturns.reduce((s, r) => s + (r - avgDailyReturn) ** 2, 0) / (dailyReturns.length - 1)) : 0;
+  const sharpe = stdDailyReturn > 0 ? (avgDailyReturn / stdDailyReturn) * Math.sqrt(252) : 0;
+
+  // Max drawdown
+  const maxDDEntry = dailySnapshots.reduce((worst, s) => s.drawdownPct > worst.drawdownPct ? s : worst, { drawdownPct: 0, date: "" });
+
+  // Consecutive wins/losses
+  let maxConsW = 0, maxConsL = 0, consW = 0, consL = 0;
   for (const t of trades) {
-    if (t.pnl > 0) { consW++; consL = 0; maxConsWins = Math.max(maxConsWins, consW); }
-    else { consL++; consW = 0; maxConsLosses = Math.max(maxConsLosses, consL); }
+    if (t.pnl > 0) { consW++; consL = 0; maxConsW = Math.max(maxConsW, consW); }
+    else { consL++; consW = 0; maxConsL = Math.max(maxConsL, consL); }
   }
 
-  // Sharpe ratio (annualized, using daily equity returns)
-  const returns: number[] = [];
-  for (let i = 1; i < equityCurve.length; i++) {
-    returns.push((equityCurve[i].equity - equityCurve[i - 1].equity) / equityCurve[i - 1].equity);
+  // Correlation to Nifty 50
+  const portfolioReturns = dailyReturns;
+  const niftyReturns: number[] = [];
+  for (let i = 1; i < dailySnapshots.length; i++) {
+    const prev = dailySnapshots[i-1].niftyClose;
+    const curr = dailySnapshots[i].niftyClose;
+    niftyReturns.push(prev > 0 ? (curr - prev) / prev : 0);
   }
-  const avgReturn = returns.length > 0 ? returns.reduce((s, r) => s + r, 0) / returns.length : 0;
-  const stdReturn = returns.length > 1
-    ? Math.sqrt(returns.reduce((s, r) => s + (r - avgReturn) ** 2, 0) / (returns.length - 1))
-    : 0;
-  const sharpe = stdReturn > 0 ? (avgReturn / stdReturn) * Math.sqrt(252) : 0;
+  const correlation = pearsonCorrelation(portfolioReturns, niftyReturns);
 
-  const maxDD = equityCurve.reduce((max, p) => Math.max(max, p.drawdownPct), 0);
-
-  const result: BacktestResult = {
-    trades: trades.sort((a, b) => a.entryDate.localeCompare(b.entryDate)),
-    summary: {
-      initialCapital: CAPITAL,
-      finalEquity: Math.round(finalEquity),
-      totalReturn: Math.round(totalReturn),
-      totalReturnPct: Math.round((totalReturn / CAPITAL) * 10000) / 100,
-      totalTrades: trades.length,
-      winners: winners.length,
-      losers: losers.length,
-      winRate: trades.length > 0 ? Math.round((winners.length / trades.length) * 10000) / 100 : 0,
-      avgWinPct: Math.round(avgWinPct * 100) / 100,
-      avgLossPct: Math.round(avgLossPct * 100) / 100,
-      avgTradePnl: trades.length > 0 ? Math.round(totalReturn / trades.length) : 0,
-      avgTradePct: trades.length > 0
-        ? Math.round((trades.reduce((s, t) => s + t.pnlPct, 0) / trades.length) * 100) / 100 : 0,
-      maxDrawdownPct: Math.round(maxDD * 100) / 100,
-      profitFactor: Math.round(profitFactor * 100) / 100,
-      sharpeRatio: Math.round(sharpe * 100) / 100,
-      maxConsecutiveWins: maxConsWins,
-      maxConsecutiveLosses: maxConsLosses,
-      avgDaysHeld: trades.length > 0
-        ? Math.round((trades.reduce((s, t) => s + t.daysHeld, 0) / trades.length) * 10) / 10 : 0,
-      capitalPerTrade: Math.round(CAPITAL / MAX_POS),
-      maxPositions: MAX_POS,
-    },
-    equityCurve,
-    period: { from: backtestStartStr, to: sortedDates[sortedDates.length - 1] || to },
+  const summary: BacktestSummary = {
+    initialCapital: CAPITAL,
+    finalPortfolioValue: Math.round(finalValue),
+    totalReturn: Math.round(totalReturn),
+    totalReturnPct: Math.round(totalReturnPct * 100) / 100,
+    annualizedReturnPct: Math.round(annualizedReturn * 100) / 100,
+    totalTrades: trades.length,
+    winningTrades: winners.length,
+    losingTrades: losers.length,
+    winningPct: trades.length > 0 ? Math.round((winners.length / trades.length) * 10000) / 100 : 0,
+    highestWinPct: highestWin ? Math.round(highestWin.pnlPct * 100) / 100 : 0,
+    highestWinSymbol: highestWin ? highestWin.symbol : "—",
+    highestLossPct: highestLoss ? Math.round(highestLoss.pnlPct * 100) / 100 : 0,
+    highestLossSymbol: highestLoss ? highestLoss.symbol : "—",
+    avgWinPct: Math.round(avgWinPct * 100) / 100,
+    avgLossPct: Math.round(avgLossPct * 100) / 100,
+    avgWinToLossRatio: avgLossPct > 0 ? Math.round((avgWinPct / avgLossPct) * 100) / 100 : avgWinPct > 0 ? Infinity : 0,
+    avgTradeDurationDays: trades.length > 0 ? Math.round((trades.reduce((s, t) => s + t.daysHeld, 0) / trades.length) * 10) / 10 : 0,
+    sharpeRatio: Math.round(sharpe * 100) / 100,
+    maxDrawdownPct: Math.round(maxDDEntry.drawdownPct * 100) / 100,
+    maxDrawdownDate: maxDDEntry.date || "",
+    profitFactor: grossLoss > 0 ? Math.round((grossProfit / grossLoss) * 100) / 100 : grossProfit > 0 ? 999 : 0,
+    maxConsecutiveWins: maxConsW,
+    maxConsecutiveLosses: maxConsL,
+    correlationToNifty: Math.round(correlation * 100) / 100,
+    maxPositions: MAX_POS,
+    positionSizePct: Math.round((100 / MAX_POS) * 100) / 100,
+    capitalPerTrade: Math.round(CAPITAL / MAX_POS),
+    totalDays: totalDays,
     dataSource: useKite ? "Kite Connect" : "Yahoo Finance",
   };
 
-  console.log(
-    `[Backtest] Complete: ${trades.length} trades, ${result.summary.totalReturnPct}% return, ${result.summary.winRate}% win rate`
-  );
+  console.log(`[Backtest] ${YEARS}yr complete: ${trades.length} trades, ${summary.totalReturnPct}% return, ${summary.winningPct}% win rate, ${summary.annualizedReturnPct}% annualized`);
 
-  return result;
+  return {
+    trades: trades.sort((a, b) => a.entryDate.localeCompare(b.entryDate)),
+    dailySnapshots,
+    summary,
+    period: { from: startStr, to: sortedDates[sortedDates.length - 1] || to },
+  };
 }
 
 // Cache
@@ -567,14 +588,10 @@ let cachedBacktest: BacktestResult | null = null;
 let backtestCacheTime = 0;
 
 export async function getBacktestResult(params?: {
-  capitalRs?: number;
-  maxPositions?: number;
-  lookbackMonths?: number;
+  capitalRs?: number; maxPositions?: number; lookbackYears?: number;
 }): Promise<BacktestResult> {
   const now = Date.now();
-  if (cachedBacktest && now - backtestCacheTime < 3600000) {
-    return cachedBacktest;
-  }
+  if (cachedBacktest && now - backtestCacheTime < 3600000) return cachedBacktest;
   cachedBacktest = await runBacktest(params || {});
   backtestCacheTime = now;
   return cachedBacktest;

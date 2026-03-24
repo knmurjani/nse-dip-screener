@@ -95,9 +95,9 @@ export async function registerRoutes(
   app.get("/api/backtest", async (req, res) => {
     try {
       const capital = parseInt(req.query.capital as string) || 1000000;
-      const maxPos = parseInt(req.query.maxPositions as string) || 20;
-      const months = parseInt(req.query.months as string) || 12;
-      const result = await getBacktestResult({ capitalRs: capital, maxPositions: maxPos, lookbackMonths: months });
+      const maxPos = parseInt(req.query.maxPositions as string) || 10;
+      const years = parseInt(req.query.years as string) || 5;
+      const result = await getBacktestResult({ capitalRs: capital, maxPositions: maxPos, lookbackYears: years });
       res.json(result);
     } catch (error: any) {
       console.error("[API] Backtest error:", error.message);
@@ -109,9 +109,9 @@ export async function registerRoutes(
     try {
       clearBacktestCache();
       const capital = parseInt(req.query.capital as string) || 1000000;
-      const maxPos = parseInt(req.query.maxPositions as string) || 20;
-      const months = parseInt(req.query.months as string) || 12;
-      const result = await getBacktestResult({ capitalRs: capital, maxPositions: maxPos, lookbackMonths: months });
+      const maxPos = parseInt(req.query.maxPositions as string) || 10;
+      const years = parseInt(req.query.years as string) || 5;
+      const result = await getBacktestResult({ capitalRs: capital, maxPositions: maxPos, lookbackYears: years });
       res.json(result);
     } catch (error: any) {
       res.status(500).json({ error: "Backtest failed", message: error.message });
