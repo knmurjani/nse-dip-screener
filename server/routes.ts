@@ -7,6 +7,8 @@ import { getBacktestResult, clearBacktestCache, runBacktest } from "./backtest";
 import Database from "better-sqlite3";
 import { getFilterBreakdown, clearFilterBreakdownCache } from "./filter-breakdown";
 import { getPortfolioSummary, runDailyLifecycle } from "./live-portfolio";
+import { runBollingerScreener, clearBollingerCache } from "./screener-bollinger";
+import { getAllStrategies, getStrategy } from "./strategies";
 
 export async function registerRoutes(
   httpServer: Server,
@@ -214,6 +216,39 @@ export async function registerRoutes(
     } catch (error: any) {
       res.status(500).json({ error: error.message });
     }
+  });
+
+  // ─── Bollinger Bounce Screener ───
+
+  app.get("/api/bollinger/screener", async (_req, res) => {
+    try {
+      const result = await runBollingerScreener();
+      res.json(result);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.post("/api/bollinger/screener/refresh", async (_req, res) => {
+    try {
+      clearBollingerCache();
+      const result = await runBollingerScreener();
+      res.json(result);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // ─── Strategy Registry ───
+
+  app.get("/api/strategies", (_req, res) => {
+    res.json(getAllStrategies());
+  });
+
+  app.get("/api/strategies/:id", (req, res) => {
+    const strategy = getStrategy(req.params.id);
+    if (!strategy) return res.status(404).json({ error: "Strategy not found" });
+    res.json(strategy);
   });
 
   // ─── Live Portfolio ───

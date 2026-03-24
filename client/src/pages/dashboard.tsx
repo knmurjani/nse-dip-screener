@@ -42,11 +42,20 @@ import {
   Moon,
   Info,
 } from "lucide-react";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import type { ScreenerStock, UniverseStock } from "@shared/schema";
 import { PerplexityAttribution } from "@/components/PerplexityAttribution";
+import { useStrategy } from "@/lib/strategy-context";
 import BacktestTab from "./backtest-tab";
 import FiltersTab from "./filters-tab";
 import PositionsTab from "./positions-tab";
+import BollingerSignals from "./bollinger-signals";
 import KiteStatusBanner, { ZerodhaTab } from "@/components/kite-status";
 
 interface ScreenerData {
@@ -103,6 +112,7 @@ function formatTime(isoString: string): string {
 }
 
 export default function Dashboard() {
+  const { strategyId, setStrategyId, strategyName } = useStrategy();
   const [darkMode, setDarkMode] = useState(() => {
     return window.matchMedia("(prefers-color-scheme: dark)").matches;
   });
@@ -216,9 +226,18 @@ export default function Dashboard() {
                 NSE Dip Screener
               </h1>
               <p className="text-[11px] text-muted-foreground leading-none mt-0.5">
-                Mean-Reversion Strategy
+                {strategyName}
               </p>
             </div>
+            <Select value={strategyId} onValueChange={setStrategyId}>
+              <SelectTrigger className="w-44 h-8 text-xs" data-testid="select-strategy">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="atr_dip_buyer" className="text-xs">ATR Dip Buyer</SelectItem>
+                <SelectItem value="bollinger_bounce" className="text-xs">Bollinger Bounce</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
           <div className="flex items-center gap-2">
             {data?.lastUpdated && (
@@ -335,6 +354,9 @@ export default function Dashboard() {
 
           {/* SIGNALS TAB */}
           <TabsContent value="signals" className="mt-4">
+            {strategyId === "bollinger_bounce" ? (
+              <BollingerSignals />
+            ) : (
             <Card>
               <CardHeader className="py-3 px-4">
                 <div className="flex items-center justify-between">
@@ -533,6 +555,7 @@ export default function Dashboard() {
                 )}
               </CardContent>
             </Card>
+            )}
           </TabsContent>
 
           {/* UNIVERSE TAB */}
