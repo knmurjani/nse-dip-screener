@@ -15,9 +15,14 @@ export function getKite(): KiteConnect {
 export function isAuthenticated(): boolean {
   if (!accessToken) return false;
   // Kite tokens expire at ~6 AM IST next day
-  const today = new Date().toISOString().split("T")[0];
-  if (tokenExpiry && tokenExpiry !== today) {
-    console.log("[Kite] Token expired (from", tokenExpiry, ") — need fresh login");
+  // Convert current UTC time to IST date
+  const now = new Date();
+  const istOffset = 5.5 * 60 * 60 * 1000;
+  const istNow = new Date(now.getTime() + istOffset);
+  const istToday = istNow.toISOString().split("T")[0];
+  
+  if (tokenExpiry && tokenExpiry !== istToday) {
+    console.log("[Kite] Token expired (set on", tokenExpiry, ", today IST is", istToday, ") — falling back to Yahoo");
     return false;
   }
   return true;

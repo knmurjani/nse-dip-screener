@@ -7,8 +7,8 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Briefcase, History, TrendingUp, TrendingDown, ArrowUpDown, ArrowUp, ArrowDown } from "lucide-react";
 
 interface Trade {
-  symbol: string; name: string; signalDate: string; entryDate: string; entryPrice: number;
-  exitDate: string; exitPrice: number; exitReason: string; pnl: number; pnlPct: number;
+  symbol: string; name: string; signalDate: string; entryDate: string; entryTime: string; entryPrice: number;
+  exitDate: string; exitTime: string; exitPrice: number; exitReason: string; pnl: number; pnlPct: number;
   daysHeld: number; setupScore: number;
 }
 
@@ -148,9 +148,9 @@ export default function PositionsTab() {
                     <TableHeader className="sticky top-0 bg-card z-10">
                       <TableRow className="hover:bg-transparent">
                         <SortHead label="Stock" field="symbol" current={sortField} dir={sortDir} onClick={() => handleSort("symbol")} />
-                        <SortHead label="Entry Date" field="entryDate" current={sortField} dir={sortDir} onClick={() => handleSort("entryDate")} align="right" />
+                        <SortHead label="Entry" field="entryDate" current={sortField} dir={sortDir} onClick={() => handleSort("entryDate")} align="right" />
                         <TableHead className="text-[11px] text-right">Entry ₹</TableHead>
-                        <SortHead label="Exit Date" field="exitDate" current={sortField} dir={sortDir} onClick={() => handleSort("exitDate")} align="right" />
+                        <SortHead label="Exit" field="exitDate" current={sortField} dir={sortDir} onClick={() => handleSort("exitDate")} align="right" />
                         <TableHead className="text-[11px] text-right">Exit ₹</TableHead>
                         <SortHead label="P&L" field="pnl" current={sortField} dir={sortDir} onClick={() => handleSort("pnl")} align="right" />
                         <SortHead label="P&L %" field="pnlPct" current={sortField} dir={sortDir} onClick={() => handleSort("pnlPct")} align="right" />
@@ -167,9 +167,15 @@ export default function PositionsTab() {
                               <p className="text-[10px] text-muted-foreground">{t.name}</p>
                             </div>
                           </TableCell>
-                          <TableCell className="text-right text-xs tabular-nums py-2">{t.entryDate}</TableCell>
+                          <TableCell className="text-right py-2">
+                            <div className="text-xs tabular-nums">{t.entryDate}</div>
+                            <div className="text-[10px] text-muted-foreground tabular-nums">{t.entryTime?.replace(t.entryDate + " ", "")}</div>
+                          </TableCell>
                           <TableCell className="text-right text-xs tabular-nums py-2">{fmtPrice(t.entryPrice)}</TableCell>
-                          <TableCell className="text-right text-xs tabular-nums py-2">{t.exitDate}</TableCell>
+                          <TableCell className="text-right py-2">
+                            <div className="text-xs tabular-nums">{t.exitDate}</div>
+                            <div className="text-[10px] text-muted-foreground tabular-nums">{t.exitTime?.replace(t.exitDate + " ", "")}</div>
+                          </TableCell>
                           <TableCell className="text-right text-xs tabular-nums py-2">{fmtPrice(t.exitPrice)}</TableCell>
                           <TableCell className="text-right py-2">
                             <span className={`text-xs font-medium tabular-nums ${t.pnl >= 0 ? "text-gain" : "text-loss"}`}>

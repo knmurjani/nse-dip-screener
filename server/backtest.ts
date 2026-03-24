@@ -25,8 +25,10 @@ export interface Trade {
   name: string;
   signalDate: string;
   entryDate: string;
+  entryTime: string; // IST timestamp
   entryPrice: number;
   exitDate: string;
+  exitTime: string; // IST timestamp
   exitPrice: number;
   exitReason: "profit_target" | "price_action" | "time_exit";
   pnl: number;
@@ -298,13 +300,21 @@ export async function runBacktest(params: {
         const pnl = (exitPrice - pos.entryPrice) * pos.shares;
         const pnlPct = ((exitPrice - pos.entryPrice) / pos.entryPrice) * 100;
 
+        // Entry: limit order fills during market hours (assume 9:15-9:30 AM IST)
+        // Exit: profit target = intraday hit, price action = at close 3:30 PM, time exit = at close 3:30 PM
+        const entryTime = `${pos.entryDate} 09:20:00 IST`;
+        let exitTime = `${today} 15:30:00 IST`;
+        if (exitReason === "profit_target") exitTime = `${today} (intraday)`;
+
         trades.push({
           symbol: pos.symbol.replace(".NS", ""),
           name: pos.name,
           signalDate: pos.signalDate,
           entryDate: pos.entryDate,
+          entryTime,
           entryPrice: Math.round(pos.entryPrice * 100) / 100,
           exitDate: today,
+          exitTime,
           exitPrice: Math.round(exitPrice * 100) / 100,
           exitReason,
           pnl: Math.round(pnl),
@@ -465,8 +475,10 @@ export async function runBacktest(params: {
       name: pos.name,
       signalDate: pos.signalDate,
       entryDate: pos.entryDate,
+      entryTime: `${pos.entryDate} 09:20:00 IST`,
       entryPrice: Math.round(pos.entryPrice * 100) / 100,
       exitDate: lastDate,
+      exitTime: `${lastDate} 15:30:00 IST`,
       exitPrice: Math.round(lastBar.close * 100) / 100,
       exitReason: "time_exit",
       pnl: Math.round(pnl),
