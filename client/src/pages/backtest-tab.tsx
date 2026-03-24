@@ -4,16 +4,20 @@ import { useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import {
+  Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from "@/components/ui/select";
 import {
   LineChart, Line, AreaChart, Area, XAxis, YAxis, CartesianGrid,
   Tooltip as RTooltip, ResponsiveContainer,
 } from "recharts";
 import {
-  RefreshCw, TrendingUp, TrendingDown, Trophy, AlertTriangle,
-  Clock, Target, BarChart3, ArrowUpDown, ArrowUp, ArrowDown,
-  Activity, Percent, Zap, Info,
+  RefreshCw, TrendingUp, Trophy, AlertTriangle, Target, BarChart3,
+  ArrowUpDown, ArrowUp, ArrowDown, Activity, Percent, Zap, Info,
+  Plus, Trash2, Loader2, ChevronDown, ChevronUp, Play,
 } from "lucide-react";
 
 // ─── Types ───
@@ -48,10 +52,18 @@ interface BacktestSummary {
 }
 
 interface BacktestResult {
+  id: number; name: string;
   trades: Trade[];
   dailySnapshots: DailySnapshot[];
   summary: BacktestSummary;
   period: { from: string; to: string };
+}
+
+interface BacktestRunSummary {
+  id: number; name: string; created_at: string; period_from: string; period_to: string;
+  capital: number; max_positions: number; universe_size: number; universe_label: string;
+  total_trades: number; annualized_return_pct: number; total_return_pct: number;
+  win_rate: number; sharpe_ratio: number; max_drawdown_pct: number; data_source: string;
 }
 
 // ─── Helpers ───
@@ -92,21 +104,88 @@ function formatChartDate(dateStr: string): string {
   return d.toLocaleDateString("en-IN", { day: "2-digit", month: "short" });
 }
 
+const PERIOD_OPTIONS = [
+  { value: "1", label: "1 Year" },
+  { value: "2", label: "2 Years" },
+  { value: "3", label: "3 Years" },
+  { value: "5", label: "5 Years" },
+  { value: "10", label: "10 Years" },
+];
+
 // ─── Main Component ───
 
 export default function BacktestTab() {
   const [sortField, setSortField] = useState<SortField>("entryDate");
   const [sortDir, setSortDir] = useState<SortDir>("desc");
   const [expandedRow, setExpandedRow] = useState<number | null>(null);
+  const [selectedRunId, setSelectedRunId] = useState<string>("");
+  const [showNewForm, setShowNewForm] = useState(false);
+  const [isRunning, setIsRunning] = useState(false);
+  const [isDeleting, setIsDeleting] = useState<number | null>(null);
+  const [showRunsList, setShowRunsList] = useState(false);
 
-  const { data, isLoading, isFetching } = useQuery<BacktestResult>({
-    queryKey: ["/api/backtest"],
-    staleTime: 3600000,
+  // Form state
+  const [formName, setFormName] = useState("");
+  const [formYears, setFormYears] = useState("5");
+  const [formCapital, setFormCapital] = useState("1000000");
+  const [formMaxPositions, setFormMaxPositions] = useState("10");
+
+  // Fetch runs list
+  const { data: runs } = useQuery<BacktestRunSummary[]>({
+    queryKey: ["/api/backtest/runs"],
+    staleTime: 30000,
   });
 
-  const handleRefresh = async () => {
-    await apiRequest("POST", "/api/backtest/refresh");
-    queryClient.invalidateQueries({ queryKey: ["/api/backtest"] });
+  // Fetch selected or latest run
+  const runQueryKey = selectedRunId
+    ? `/api/backtest?runId=${selectedRunId}`
+    : "/api/backtest";
+
+  const { data, isLoading } = useQuery<BacktestResult>({
+    queryKey: [runQueryKey],
+    staleTime: Infinity,
+  });
+
+  // Sync dropdown to loaded data
+  const activeRunId = data?.id ? String(data.id) : selectedRunId;
+
+  const handleSelectRun = (runId: string) => {
+    setSelectedRunId(runId);
+    queryClient.invalidateQueries({ queryKey: [`/api/backtest?runId=${runId}`] });
+  };
+
+  const handleRunBacktest = async () => {
+    setIsRunning(true);
+    try {
+      const res = await apiRequest("POST", "/api/backtest/run", {
+        name: formName || undefined,
+        capital: Number(formCapital),
+        maxPositions: Number(formMaxPositions),
+        years: Number(formYears),
+      });
+      const result: BacktestResult = await res.json();
+      setSelectedRunId(String(result.id));
+      setShowNewForm(false);
+      setFormName("");
+      queryClient.invalidateQueries({ queryKey: ["/api/backtest/runs"] });
+      queryClient.setQueryData([`/api/backtest?runId=${result.id}`], result);
+    } finally {
+      setIsRunning(false);
+    }
+  };
+
+  const handleDeleteRun = async (id: number) => {
+    setIsDeleting(id);
+    try {
+      await apiRequest("DELETE", `/api/backtest/runs/${id}`);
+      queryClient.invalidateQueries({ queryKey: ["/api/backtest/runs"] });
+      if (String(id) === activeRunId) {
+        setSelectedRunId("");
+        queryClient.invalidateQueries({ queryKey: ["/api/backtest"] });
+      }
+    } finally {
+      setIsDeleting(null);
+    }
   };
 
   const handleSort = (field: SortField) => {
@@ -123,40 +202,237 @@ export default function BacktestTab() {
   });
 
   const s = data?.summary;
-
-  // Sample every 5th data point for chart performance
   const chartData = (data?.dailySnapshots ?? []).filter((_, i) => i % 5 === 0);
+  const hasRuns = (runs ?? []).length > 0;
 
   return (
     <div className="space-y-4" data-testid="backtest-tab">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-sm font-semibold" data-testid="backtest-period">
-            Backtest: {data?.period.from} → {data?.period.to}
-          </h2>
-          <p className="text-[11px] text-muted-foreground">
-            {s ? `₹${(s.initialCapital / 100000).toFixed(0)}L capital · ${s.maxPositions} max positions · ${s.positionSizePct}% per trade` : "Loading..."}
-            {s?.dataSource && ` · via ${s.dataSource}`}
-          </p>
+      {/* ── Run Manager ── */}
+      <div className="flex flex-col sm:flex-row items-start sm:items-center gap-3" data-testid="run-manager">
+        {/* Left: Run selector dropdown */}
+        <div className="flex items-center gap-2 flex-1 min-w-0">
+          <BarChart3 className="w-4 h-4 text-primary shrink-0" />
+          <Select value={activeRunId} onValueChange={handleSelectRun}>
+            <SelectTrigger className="h-8 text-xs max-w-sm" data-testid="select-run">
+              <SelectValue placeholder="Select a backtest run..." />
+            </SelectTrigger>
+            <SelectContent>
+              {(runs ?? []).map(r => (
+                <SelectItem key={r.id} value={String(r.id)} className="text-xs">
+                  {r.name} | {r.period_from}→{r.period_to} | {r.annualized_return_pct >= 0 ? "+" : ""}{r.annualized_return_pct.toFixed(1)}%
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
-        <Button
-          variant="outline" size="sm" onClick={handleRefresh}
-          disabled={isFetching} className="h-8 text-xs gap-1.5"
-          data-testid="button-backtest-refresh"
-        >
-          <RefreshCw className={`w-3.5 h-3.5 ${isFetching ? "animate-spin" : ""}`} />
-          Re-run
-        </Button>
+
+        {/* Right: New Backtest + toggle runs list */}
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline" size="sm" className="h-8 text-xs gap-1.5"
+            onClick={() => setShowRunsList(!showRunsList)}
+            data-testid="button-toggle-runs"
+          >
+            {showRunsList ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+            Runs ({(runs ?? []).length})
+          </Button>
+          <Button
+            variant={showNewForm ? "secondary" : "default"} size="sm" className="h-8 text-xs gap-1.5"
+            onClick={() => setShowNewForm(!showNewForm)}
+            data-testid="button-new-backtest"
+          >
+            <Plus className="w-3.5 h-3.5" />
+            New Backtest
+          </Button>
+        </div>
       </div>
 
+      {/* ── New Backtest Form ── */}
+      {showNewForm && (
+        <Card data-testid="new-backtest-form">
+          <CardHeader className="py-2 px-4">
+            <CardTitle className="text-xs font-semibold">Configure New Backtest</CardTitle>
+          </CardHeader>
+          <CardContent className="px-4 pb-3">
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+              <div>
+                <label className="text-[10px] text-muted-foreground block mb-1">Name (optional)</label>
+                <Input
+                  value={formName} onChange={e => setFormName(e.target.value)}
+                  placeholder="Auto-generated" className="h-8 text-xs"
+                  data-testid="input-name"
+                />
+              </div>
+              <div>
+                <label className="text-[10px] text-muted-foreground block mb-1">Period</label>
+                <Select value={formYears} onValueChange={setFormYears}>
+                  <SelectTrigger className="h-8 text-xs" data-testid="select-period">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {PERIOD_OPTIONS.map(o => (
+                      <SelectItem key={o.value} value={o.value} className="text-xs">{o.label}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <label className="text-[10px] text-muted-foreground block mb-1">Capital (₹)</label>
+                <Input
+                  type="number" value={formCapital} onChange={e => setFormCapital(e.target.value)}
+                  className="h-8 text-xs tabular-nums"
+                  data-testid="input-capital"
+                />
+              </div>
+              <div>
+                <label className="text-[10px] text-muted-foreground block mb-1">Max Positions</label>
+                <Input
+                  type="number" value={formMaxPositions} onChange={e => setFormMaxPositions(e.target.value)}
+                  className="h-8 text-xs tabular-nums"
+                  data-testid="input-max-positions"
+                />
+              </div>
+            </div>
+            <div className="flex items-center gap-3 mt-3">
+              <Button
+                size="sm" className="h-8 text-xs gap-1.5"
+                onClick={handleRunBacktest} disabled={isRunning}
+                data-testid="button-run-backtest"
+              >
+                {isRunning ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Play className="w-3.5 h-3.5" />}
+                {isRunning ? "Running..." : "Run Backtest"}
+              </Button>
+              {isRunning && (
+                <span className="text-[11px] text-muted-foreground">This may take 3–5 minutes...</span>
+              )}
+              <Button
+                variant="ghost" size="sm" className="h-8 text-xs"
+                onClick={() => setShowNewForm(false)}
+                data-testid="button-cancel-form"
+              >
+                Cancel
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* ── Saved Runs List ── */}
+      {showRunsList && (
+        <Card data-testid="runs-list">
+          <CardHeader className="py-2 px-4">
+            <CardTitle className="text-xs font-semibold">Saved Runs</CardTitle>
+          </CardHeader>
+          <CardContent className="px-0 pb-0">
+            {!hasRuns ? (
+              <div className="p-6 text-center text-sm text-muted-foreground">
+                No saved runs yet.
+              </div>
+            ) : (
+              <div className="overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow className="hover:bg-transparent">
+                      <TableHead className="text-[11px] pl-4">Name</TableHead>
+                      <TableHead className="text-[11px]">Period</TableHead>
+                      <TableHead className="text-[11px] text-right">Ann. Ret%</TableHead>
+                      <TableHead className="text-[11px] text-right">Total Ret%</TableHead>
+                      <TableHead className="text-[11px] text-right">Trades</TableHead>
+                      <TableHead className="text-[11px] text-right">Win Rate</TableHead>
+                      <TableHead className="text-[11px] text-right">Sharpe</TableHead>
+                      <TableHead className="text-[11px] text-right">Max DD</TableHead>
+                      <TableHead className="text-[11px] text-right pr-4">Actions</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {(runs ?? []).map((r, i) => (
+                      <TableRow
+                        key={r.id}
+                        className={activeRunId === String(r.id) ? "bg-primary/5" : ""}
+                        data-testid={`row-run-${i}`}
+                      >
+                        <TableCell className="py-2 pl-4">
+                          <div>
+                            <span className="text-xs font-semibold">{r.name}</span>
+                            <p className="text-[10px] text-muted-foreground">
+                              {fmtRs(r.capital)} · {r.max_positions} pos · {r.universe_label}
+                            </p>
+                          </div>
+                        </TableCell>
+                        <TableCell className="text-xs tabular-nums py-2">
+                          {r.period_from} → {r.period_to}
+                        </TableCell>
+                        <TableCell className="text-right py-2">
+                          <span className={`text-xs font-medium tabular-nums ${r.annualized_return_pct >= 0 ? "text-gain" : "text-loss"}`}>
+                            {r.annualized_return_pct >= 0 ? "+" : ""}{r.annualized_return_pct.toFixed(1)}%
+                          </span>
+                        </TableCell>
+                        <TableCell className="text-right py-2">
+                          <span className={`text-xs tabular-nums ${r.total_return_pct >= 0 ? "text-gain" : "text-loss"}`}>
+                            {r.total_return_pct >= 0 ? "+" : ""}{r.total_return_pct.toFixed(1)}%
+                          </span>
+                        </TableCell>
+                        <TableCell className="text-right text-xs tabular-nums py-2">{r.total_trades}</TableCell>
+                        <TableCell className="text-right py-2">
+                          <span className={`text-xs tabular-nums ${r.win_rate >= 50 ? "text-gain" : "text-loss"}`}>
+                            {r.win_rate.toFixed(1)}%
+                          </span>
+                        </TableCell>
+                        <TableCell className="text-right text-xs tabular-nums py-2">{r.sharpe_ratio.toFixed(2)}</TableCell>
+                        <TableCell className="text-right text-xs tabular-nums text-loss py-2">
+                          -{r.max_drawdown_pct.toFixed(1)}%
+                        </TableCell>
+                        <TableCell className="text-right py-2 pr-4">
+                          <div className="flex items-center justify-end gap-1">
+                            <Button
+                              variant="outline" size="sm" className="h-6 px-2 text-[10px]"
+                              onClick={() => handleSelectRun(String(r.id))}
+                              disabled={activeRunId === String(r.id)}
+                              data-testid={`button-load-${r.id}`}
+                            >
+                              {activeRunId === String(r.id) ? "Active" : "Load"}
+                            </Button>
+                            <Button
+                              variant="ghost" size="sm" className="h-6 w-6 p-0 text-muted-foreground hover:text-loss"
+                              onClick={() => handleDeleteRun(r.id)}
+                              disabled={isDeleting === r.id}
+                              data-testid={`button-delete-${r.id}`}
+                            >
+                              {isDeleting === r.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <Trash2 className="w-3 h-3" />}
+                            </Button>
+                          </div>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      {/* ── Results Section ── */}
       {isLoading ? (
         <div className="space-y-3">
           {[...Array(4)].map((_, i) => <div key={i} className="h-20 bg-muted animate-pulse rounded-lg" />)}
         </div>
       ) : s ? (
         <>
-          {/* ── Section 1: Summary Dashboard ── */}
+          {/* Run header */}
+          <div className="flex items-center justify-between">
+            <div>
+              <h2 className="text-sm font-semibold" data-testid="backtest-period">
+                {data?.name}: {data?.period.from} → {data?.period.to}
+              </h2>
+              <p className="text-[11px] text-muted-foreground">
+                {`₹${(s.initialCapital / 100000).toFixed(0)}L capital · ${s.maxPositions} max positions · ${s.positionSizePct}% per trade`}
+                {s.dataSource && ` · via ${s.dataSource}`}
+              </p>
+            </div>
+          </div>
+
+          {/* ── Summary Dashboard ── */}
 
           {/* Row 1: 4 primary KPIs */}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3" data-testid="kpi-row-1">
@@ -256,8 +532,7 @@ export default function BacktestTab() {
             />
           </div>
 
-          {/* ── Section 2: Charts ── */}
-
+          {/* ── Charts ── */}
           {chartData.length > 0 && (
             <div className="space-y-4" data-testid="charts-section">
               {/* Equity Curve: Portfolio vs Nifty */}
@@ -350,7 +625,7 @@ export default function BacktestTab() {
             </div>
           )}
 
-          {/* ── Section 3: Trade Log ── */}
+          {/* ── Trade Log ── */}
           <Card>
             <CardHeader className="py-3 px-4">
               <CardTitle className="text-sm font-semibold" data-testid="trade-log-title">
@@ -441,10 +716,16 @@ export default function BacktestTab() {
             </CardContent>
           </Card>
         </>
-      ) : (
-        <div className="py-16 text-center">
+      ) : !hasRuns ? (
+        <div className="py-16 text-center" data-testid="empty-state">
           <BarChart3 className="w-10 h-10 mx-auto text-muted-foreground/30 mb-3" />
-          <p className="text-sm text-muted-foreground">No backtest data. Click Re-run to start.</p>
+          <p className="text-sm text-muted-foreground">No backtests yet.</p>
+          <p className="text-[11px] text-muted-foreground mt-1">Click "New Backtest" to run your first simulation.</p>
+        </div>
+      ) : (
+        <div className="py-16 text-center" data-testid="no-run-selected">
+          <BarChart3 className="w-10 h-10 mx-auto text-muted-foreground/30 mb-3" />
+          <p className="text-sm text-muted-foreground">Select a run from the dropdown to view results.</p>
         </div>
       )}
     </div>

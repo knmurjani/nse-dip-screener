@@ -3,7 +3,8 @@ import { createServer, type Server } from "http";
 import { runScreener, clearCache } from "./screener";
 import { startScheduler } from "./scheduler";
 import { getLoginURL, generateSession, setAccessToken, isAuthenticated, getKite, getKiteStatus, markKiteFailed } from "./kite";
-import { getBacktestResult, clearBacktestCache } from "./backtest";
+import { getBacktestResult, clearBacktestCache, runBacktest } from "./backtest";
+import Database from "better-sqlite3";
 import { getFilterBreakdown, clearFilterBreakdownCache } from "./filter-breakdown";
 import { getPortfolioSummary, runDailyLifecycle } from "./live-portfolio";
 
@@ -105,29 +106,113 @@ export async function registerRoutes(
 
   // ─── Backtest ───
 
+  // Get a specific saved backtest run (or the latest)
   app.get("/api/backtest", async (req, res) => {
     try {
-      const capital = parseInt(req.query.capital as string) || 1000000;
-      const maxPos = parseInt(req.query.maxPositions as string) || 10;
-      const years = parseInt(req.query.years as string) || 5;
-      const result = await getBacktestResult({ capitalRs: capital, maxPositions: maxPos, lookbackYears: years });
-      res.json(result);
+      const runId = req.query.runId as string;
+      const sqlite = new Database("data.db");
+      
+      if (runId) {
+        const row = sqlite.prepare("SELECT * FROM backtest_runs WHERE id = ?").get(parseInt(runId)) as any;
+        if (!row) return res.status(404).json({ error: "Run not found" });
+        return res.json({
+          id: row.id,
+          name: row.name,
+          trades: JSON.parse(row.trades_json),
+          dailySnapshots: JSON.parse(row.snapshots_json),
+          summary: JSON.parse(row.summary_json),
+          period: { from: row.period_from, to: row.period_to },
+        });
+      }
+
+      // Return latest saved run if exists
+      const latest = sqlite.prepare("SELECT * FROM backtest_runs ORDER BY id DESC LIMIT 1").get() as any;
+      if (latest) {
+        return res.json({
+          id: latest.id,
+          name: latest.name,
+          trades: JSON.parse(latest.trades_json),
+          dailySnapshots: JSON.parse(latest.snapshots_json),
+          summary: JSON.parse(latest.summary_json),
+          period: { from: latest.period_from, to: latest.period_to },
+        });
+      }
+
+      res.json(null); // No runs yet
     } catch (error: any) {
       console.error("[API] Backtest error:", error.message);
       res.status(500).json({ error: "Backtest failed", message: error.message });
     }
   });
 
-  app.post("/api/backtest/refresh", async (req, res) => {
+  // List all saved backtest runs (summary only)
+  app.get("/api/backtest/runs", (_req, res) => {
     try {
-      clearBacktestCache();
-      const capital = parseInt(req.query.capital as string) || 1000000;
-      const maxPos = parseInt(req.query.maxPositions as string) || 10;
-      const years = parseInt(req.query.years as string) || 5;
-      const result = await getBacktestResult({ capitalRs: capital, maxPositions: maxPos, lookbackYears: years });
-      res.json(result);
+      const sqlite = new Database("data.db");
+      const runs = sqlite.prepare(
+        "SELECT id, name, created_at, period_from, period_to, capital, max_positions, universe_size, universe_label, total_trades, annualized_return_pct, total_return_pct, win_rate, sharpe_ratio, max_drawdown_pct, data_source FROM backtest_runs ORDER BY id DESC"
+      ).all();
+      res.json(runs);
     } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Run a new backtest and save it permanently
+  app.post("/api/backtest/run", async (req, res) => {
+    try {
+      const { name, capital, maxPositions, years } = req.body;
+      const params = {
+        capitalRs: capital || 1000000,
+        maxPositions: maxPositions || 10,
+        lookbackYears: years || 5,
+      };
+
+      console.log(`[API] Running backtest: ${name || 'Unnamed'}, ${params.lookbackYears}yr, ₹${params.capitalRs/1e5}L, ${params.maxPositions} pos`);
+      clearBacktestCache();
+      const result = await runBacktest(params);
+
+      // Generate auto-name if not provided
+      const autoName = name || `${result.period.from} → ${result.period.to} | ${params.maxPositions} pos`;
+      const now = new Date().toISOString();
+
+      // Save to database
+      const sqlite = new Database("data.db");
+      const stmt = sqlite.prepare(`
+        INSERT INTO backtest_runs (name, created_at, period_from, period_to, capital, max_positions, universe_size, universe_label, total_trades, annualized_return_pct, total_return_pct, win_rate, sharpe_ratio, max_drawdown_pct, data_source, summary_json, trades_json, snapshots_json)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `);
+      const info = stmt.run(
+        autoName, now, result.period.from, result.period.to,
+        params.capitalRs, params.maxPositions,
+        result.summary.totalTrades, "Nifty 500",
+        result.summary.totalTrades,
+        result.summary.annualizedReturnPct,
+        result.summary.totalReturnPct,
+        result.summary.winningPct,
+        result.summary.sharpeRatio,
+        result.summary.maxDrawdownPct,
+        result.summary.dataSource,
+        JSON.stringify(result.summary),
+        JSON.stringify(result.trades),
+        JSON.stringify(result.dailySnapshots)
+      );
+
+      res.json({ id: info.lastInsertRowid, name: autoName, ...result });
+    } catch (error: any) {
+      console.error("[API] Backtest run error:", error.message);
       res.status(500).json({ error: "Backtest failed", message: error.message });
+    }
+  });
+
+  // Delete a backtest run
+  app.delete("/api/backtest/runs/:id", (req, res) => {
+    try {
+      const sqlite = new Database("data.db");
+      sqlite.prepare("DELETE FROM backtest_runs WHERE id = ?").run(parseInt(req.params.id));
+      res.json({ success: true });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
     }
   });
 

@@ -90,6 +90,31 @@ sqlite.exec(`
   );
 `);
 
+// Backtest runs table — persistent storage for all backtest versions
+sqlite.exec(`
+  CREATE TABLE IF NOT EXISTS backtest_runs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    period_from TEXT NOT NULL,
+    period_to TEXT NOT NULL,
+    capital REAL NOT NULL,
+    max_positions INTEGER NOT NULL,
+    universe_size INTEGER NOT NULL,
+    universe_label TEXT NOT NULL,
+    total_trades INTEGER NOT NULL,
+    annualized_return_pct REAL NOT NULL,
+    total_return_pct REAL NOT NULL,
+    win_rate REAL NOT NULL,
+    sharpe_ratio REAL NOT NULL,
+    max_drawdown_pct REAL NOT NULL,
+    data_source TEXT NOT NULL,
+    summary_json TEXT NOT NULL,
+    trades_json TEXT NOT NULL,
+    snapshots_json TEXT NOT NULL
+  );
+`);
+
 // Initialize config with defaults if not set
 const existing = sqlite.prepare("SELECT key FROM live_config WHERE key = 'initial_capital'").get();
 if (!existing) {
