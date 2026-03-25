@@ -144,7 +144,7 @@ export async function sendDailyPnLSummary(deploymentId: number): Promise<void> {
     const investedValue = positions.reduce((s: number, p: any) => s + (p.current_value || p.entry_value), 0);
     const unrealizedPnl = positions.reduce((s: number, p: any) => s + (p.pnl || 0), 0);
     const totalRealizedPnl = trades.reduce((s: number, t: any) => s + t.pnl, 0);
-    const cash = deployment.current_capital - positions.reduce((s: number, p: any) => s + p.entry_value, 0) + totalRealizedPnl;
+    const cash = deployment.current_capital;
     const portfolioValue = cash + investedValue;
     const returnPct = ((portfolioValue - deployment.initial_capital) / deployment.initial_capital * 100).toFixed(2);
 
@@ -181,7 +181,7 @@ export async function sendMorningBrief(deploymentId: number): Promise<void> {
     const unrealizedPnl = positions.reduce((s: number, p: any) => s + (p.pnl || 0), 0);
     const trades = getDeploymentTrades(deploymentId);
     const totalRealizedPnl = trades.reduce((s: number, t: any) => s + t.pnl, 0);
-    const cash = deployment.current_capital - positions.reduce((s: number, p: any) => s + p.entry_value, 0) + totalRealizedPnl;
+    const cash = deployment.current_capital;
     const portfolioValue = cash + investedValue;
 
     const positionList = positions.length > 0

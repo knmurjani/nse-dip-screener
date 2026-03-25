@@ -232,14 +232,22 @@ export default function PositionsTab() {
   const [subTab, setSubTab] = useState("positions");
 
   // Fetch all deployments
-  const { data: deployments, isLoading: deploymentsLoading } = useQuery<Deployment[]>({
+  const { data: allDeployments, isLoading: deploymentsLoading } = useQuery<Deployment[]>({
     queryKey: ["/api/deployments"],
     staleTime: 30000,
   });
 
+  // Filter deployments by the selected strategy
+  const deployments = allDeployments?.filter(d => d.strategy_id === strategyId) || [];
+
+  // Reset selected deployment when strategy changes
+  useEffect(() => {
+    setSelectedDeploymentId(null);
+  }, [strategyId]);
+
   // Auto-select first deployment
   useEffect(() => {
-    if (deployments && deployments.length > 0 && !selectedDeploymentId) {
+    if (deployments.length > 0 && !selectedDeploymentId) {
       setSelectedDeploymentId(deployments[0].id);
     }
   }, [deployments, selectedDeploymentId]);
@@ -251,7 +259,7 @@ export default function PositionsTab() {
     staleTime: 15000,
   });
 
-  const hasDeployments = deployments && deployments.length > 0;
+  const hasDeployments = deployments.length > 0;
 
   return (
     <div className="space-y-4" data-testid="positions-tab">

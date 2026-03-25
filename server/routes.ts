@@ -371,6 +371,9 @@ export async function registerRoutes(
 
   // Run a new backtest and save it permanently
   app.post("/api/backtest/run", async (req, res) => {
+    // Set a longer timeout for backtest requests (5 minutes)
+    req.setTimeout(300000);
+    res.setTimeout(300000);
     try {
       const { name, capital, maxPositions, years, fromDate, toDate, strategyId, absoluteStopPct, trailingStopPct, maPeriod, entryBandSigma, stopLossSigma, targetBandSigma, maxHoldDays, allowParallelPositions, watchlistCondition, entryCondition, exitTarget, exitStopBand, dmaLength, dipThresholdPct, atrFilterThreshold, limitOrderMultiple, profitTargetMultiple, priceActionExit } = req.body;
       const strategy = strategyId || "atr_dip_buyer";

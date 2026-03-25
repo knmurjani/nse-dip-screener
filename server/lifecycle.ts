@@ -121,6 +121,22 @@ async function getNiftyPrice(): Promise<number> {
   return 0;
 }
 
+// ─── Instruments Cache ───
+
+let instrumentsCache: any[] | null = null;
+let instrumentsCacheTime = 0;
+const INSTRUMENTS_CACHE_TTL = 24 * 60 * 60 * 1000; // 24 hours
+
+async function getCachedInstruments(): Promise<any[]> {
+  if (instrumentsCache && Date.now() - instrumentsCacheTime < INSTRUMENTS_CACHE_TTL) {
+    return instrumentsCache;
+  }
+  const kite = getKite();
+  instrumentsCache = await kite.getInstruments("NSE");
+  instrumentsCacheTime = Date.now();
+  return instrumentsCache;
+}
+
 // ─── Bollinger Bands Computation ───
 
 async function getBollingerBands(
@@ -139,7 +155,7 @@ async function getBollingerBands(
     if (isAuthenticated()) {
       try {
         const kite = getKite();
-        const instruments = await kite.getInstruments("NSE");
+        const instruments = await getCachedInstruments();
         const inst = instruments.find((i: any) => i.tradingsymbol === clean);
         if (inst) {
           data = await kite.getHistoricalData(inst.instrument_token, "day", startDate, endDate);
@@ -314,7 +330,7 @@ export async function runDeploymentLifecycle(deploymentId: number): Promise<Life
             if (!exitReason && deployment.stop_loss_sigma) {
               const stopPrice = bands.mean - deployment.stop_loss_sigma * oneSigma;
               if (quote.low <= stopPrice) {
-                exitPrice = stopPrice;
+                exitPrice = quote.price;  // Use actual current price, consistent with backtest fix
                 exitReason = "sigma_stop";
                 exitDetail = `Low ₹${quote.low.toFixed(2)} ≤ Stop (−${deployment.stop_loss_sigma}σ = ₹${stopPrice.toFixed(2)})`;
               }
@@ -448,11 +464,8 @@ export async function runDeploymentLifecycle(deploymentId: number): Promise<Life
     const existingSymbols = new Set(currentPositions.map((p: any) => p.symbol));
 
     // Get current portfolio value for position sizing
-    const allTrades = getDeploymentTrades(deploymentId);
-    const totalRealizedPnl = allTrades.reduce((s: number, t: any) => s + t.pnl, 0);
-    const investedCapital = currentPositions.reduce((s: number, p: any) => s + p.entry_value, 0);
     const investedValue = currentPositions.reduce((s: number, p: any) => s + (p.current_value || p.entry_value), 0);
-    const cashAvailable = deployment.current_capital - investedCapital + totalRealizedPnl;
+    const cashAvailable = deployment.current_capital;
     const portfolioValue = cashAvailable + investedValue;
     const positionSize = portfolioValue / deployment.max_positions;
 
@@ -634,8 +647,7 @@ export async function runEndOfDaySummary(deploymentId: number): Promise<void> {
     const totalRealizedPnl = allTrades.reduce((s: number, t: any) => s + t.pnl, 0);
     const investedValue = positions.reduce((s: number, p: any) => s + (p.current_value || p.entry_value), 0);
     const unrealizedPnl = positions.reduce((s: number, p: any) => s + (p.pnl || 0), 0);
-    const investedCapital = positions.reduce((s: number, p: any) => s + p.entry_value, 0);
-    const cash = deployment.current_capital - investedCapital + totalRealizedPnl;
+    const cash = deployment.current_capital;
     const portfolioValue = cash + investedValue;
     const returnPct = ((portfolioValue - deployment.initial_capital) / deployment.initial_capital) * 100;
 
@@ -720,10 +732,8 @@ async function checkDrawdownAlert(deploymentId: number): Promise<void> {
     const positions = getDeploymentPositions(deploymentId);
     const trades = getDeploymentTrades(deploymentId);
 
-    const totalRealizedPnl = trades.reduce((s: number, t: any) => s + t.pnl, 0);
     const investedValue = positions.reduce((s: number, p: any) => s + (p.current_value || p.entry_value), 0);
-    const investedCapital = positions.reduce((s: number, p: any) => s + p.entry_value, 0);
-    const cash = deployment.current_capital - investedCapital + totalRealizedPnl;
+    const cash = deployment.current_capital;
     const currentValue = cash + investedValue;
 
     const peak = Math.max(deployment.initial_capital, ...snapshots.map((s: any) => s.portfolio_value));
