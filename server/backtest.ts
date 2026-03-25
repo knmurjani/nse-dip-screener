@@ -178,6 +178,12 @@ export interface ATRBacktestParams {
   maxHoldDays?: number;      // default 10
   absoluteStopPct?: number;  // e.g. 5 means -5% absolute stop from entry
   trailingStopPct?: number;  // e.g. 3 means -3% trailing stop from peak
+  dmaLength?: number;          // default 200 (can be 50, 100, 200)
+  dipThresholdPct?: number;    // default 3 (can be 2, 3, 5)
+  atrFilterThreshold?: number; // default 3 (can be 2, 3, 4, 5)
+  limitOrderMultiple?: number; // default 0.9 (can be 0.5, 0.7, 0.9, 1.0)
+  profitTargetMultiple?: number; // default 0.5 (can be 0.3, 0.5, 0.7, 1.0)
+  priceActionExit?: boolean;   // default true (close > prev high)
 }
 
 interface OpenPosition {
@@ -194,6 +200,12 @@ export async function runBacktest(params: ATRBacktestParams): Promise<BacktestRe
   const MAX_HOLD = params.maxHoldDays || 10;
   const ABS_STOP = params.absoluteStopPct;   // undefined = disabled
   const TRAIL_STOP = params.trailingStopPct; // undefined = disabled
+  const DMA_LEN = params.dmaLength || 200;
+  const DIP_THRESH = params.dipThresholdPct || 3;
+  const ATR_FILTER = params.atrFilterThreshold || 3;
+  const LIMIT_MULT = params.limitOrderMultiple ?? 0.9;
+  const PROFIT_MULT = params.profitTargetMultiple ?? 0.5;
+  const PRICE_ACTION_EXIT = params.priceActionExit !== false; // default true
 
   // Determine backtest period — fromDate/toDate take precedence over lookbackYears
   let toDate: Date;
@@ -209,7 +221,7 @@ export async function runBacktest(params: ATRBacktestParams): Promise<BacktestRe
   }
 
   const fromDate = new Date(backtestStart);
-  fromDate.setDate(fromDate.getDate() - 320); // extra ~1 year for 200-DMA warmup
+  fromDate.setDate(fromDate.getDate() - (DMA_LEN + 120)); // extra buffer for DMA warmup
 
   const from = fromDate.toISOString().split("T")[0];
   const to = toDate.toISOString().split("T")[0];
@@ -217,7 +229,7 @@ export async function runBacktest(params: ATRBacktestParams): Promise<BacktestRe
 
   const yearsLabel = ((toDate.getTime() - backtestStart.getTime()) / (365.25 * 86400000)).toFixed(1);
   const useKite = isAuthenticated();
-  console.log(`[Backtest] ${yearsLabel}yr (${startStr} → ${to}), ₹${(CAPITAL/1e5).toFixed(0)}L, ${MAX_POS} max pos, hold ${MAX_HOLD}d, absStop=${ABS_STOP ?? 'off'}, trailStop=${TRAIL_STOP ?? 'off'}, via ${useKite ? "Kite" : "Yahoo"}`);
+  console.log(`[Backtest] ${yearsLabel}yr (${startStr} → ${to}), ₹${(CAPITAL/1e5).toFixed(0)}L, ${MAX_POS} max pos, hold ${MAX_HOLD}d, DMA=${DMA_LEN}, dip=${DIP_THRESH}%, atrFilt=${ATR_FILTER}, limit=${LIMIT_MULT}×ATR, profit=${PROFIT_MULT}×ATR, priceAction=${PRICE_ACTION_EXIT}, absStop=${ABS_STOP ?? 'off'}, trailStop=${TRAIL_STOP ?? 'off'}, via ${useKite ? "Kite" : "Yahoo"}`);
 
   // ─── Fetch Nifty 50 for correlation ───
   const niftyBars = await fetchBars("^NSEI", from, to) || await fetchBars("NIFTY_50.NS", from, to) || [];
@@ -231,7 +243,7 @@ export async function runBacktest(params: ATRBacktestParams): Promise<BacktestRe
     const batch = NSE_UNIVERSE.slice(i, i + batchSize);
     await Promise.allSettled(batch.map(async (stock) => {
       const bars = await fetchBars(stock.symbol, from, to);
-      if (bars && bars.length >= 200) allBars.set(stock.symbol, bars);
+      if (bars && bars.length >= DMA_LEN) allBars.set(stock.symbol, bars);
     }));
     if (i + batchSize < NSE_UNIVERSE.length) await new Promise(r => setTimeout(r, useKite ? 80 : 120));
     if ((i + batchSize) % 100 === 0) console.log(`[Backtest] Fetched ${Math.min(i + batchSize, NSE_UNIVERSE.length)} / ${NSE_UNIVERSE.length}...`);
@@ -300,11 +312,11 @@ export async function runBacktest(params: ATRBacktestParams): Promise<BacktestRe
       if (bar.high >= pos.profitTarget) {
         exitPrice = pos.profitTarget;
         exitReason = "profit_target";
-        exitReasonDetail = `High ₹${bar.high.toFixed(2)} ≥ Target ₹${pos.profitTarget.toFixed(2)} (Entry ₹${pos.entryPrice.toFixed(2)} + 0.5×ATR ₹${(pos.atr5 * 0.5).toFixed(2)})`;
+        exitReasonDetail = `High ₹${bar.high.toFixed(2)} ≥ Target ₹${pos.profitTarget.toFixed(2)} (Entry ₹${pos.entryPrice.toFixed(2)} + ${PROFIT_MULT}×ATR ₹${(pos.atr5 * PROFIT_MULT).toFixed(2)})`;
       }
 
-      // Exit 2: Price action — close > previous day's high
-      if (!exitReason && prevBar && bar.close > prevBar.high) {
+      // Exit 2: Price action — close > previous day's high (configurable)
+      if (!exitReason && PRICE_ACTION_EXIT && prevBar && bar.close > prevBar.high) {
         exitPrice = bar.close;
         exitReason = "price_action_close_above_prev_high";
         exitReasonDetail = `Close ₹${bar.close.toFixed(2)} > Prev High ₹${prevBar.high.toFixed(2)} — rebound confirmed`;
@@ -385,24 +397,24 @@ export async function runBacktest(params: ATRBacktestParams): Promise<BacktestRe
         const idxMap = barIndex.get(symbol);
         if (!idxMap) continue;
         const todayIdx = idxMap.get(today);
-        if (todayIdx === undefined || todayIdx < 201) continue;
+        if (todayIdx === undefined || todayIdx < DMA_LEN + 1) continue;
 
         const bar = bars[todayIdx];
         const prevBar = bars[todayIdx - 1];
 
-        // 200 DMA filter
-        const dma200 = computeSMA(bars, todayIdx, 200);
-        if (bar.close <= dma200) continue;
+        // N-DMA filter (configurable)
+        const dma = computeSMA(bars, todayIdx, DMA_LEN);
+        if (bar.close <= dma) continue;
 
-        // Dip > 3%
+        // Dip > threshold% (configurable)
         const dropPct = ((prevBar.close - bar.close) / prevBar.close) * 100;
-        if (dropPct < 3) continue;
+        if (dropPct < DIP_THRESH) continue;
 
-        // ATR(5) volatility filter
+        // ATR(5) volatility filter (configurable threshold)
         const atr5 = computeATR(bars, todayIdx, 5);
         if (atr5 === 0) continue;
         const atrPctClose = (100 * atr5) / bar.close;
-        if (atrPctClose <= 3) continue;
+        if (atrPctClose <= ATR_FILTER) continue;
 
         candidates.push({
           symbol,
@@ -411,8 +423,8 @@ export async function runBacktest(params: ATRBacktestParams): Promise<BacktestRe
           close: bar.close,
           atr5,
           setupScore: atr5 / bar.close,
-          limitPrice: bar.close - 0.9 * atr5,
-          profitTarget: bar.close + 0.5 * atr5,
+          limitPrice: bar.close - LIMIT_MULT * atr5,
+          profitTarget: bar.close + PROFIT_MULT * atr5,
         });
       }
 

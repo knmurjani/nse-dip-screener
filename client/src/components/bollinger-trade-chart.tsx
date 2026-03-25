@@ -7,7 +7,7 @@ import {
 } from "recharts";
 import { Loader2 } from "lucide-react";
 
-interface BollingerChartData {
+interface ChartData {
   date: string;
   close: number;
   open: number;
@@ -17,10 +17,11 @@ interface BollingerChartData {
   upperBand: number;
   lowerBand: number;
   stopBand: number;
+  dma?: number;
 }
 
 interface TradeChartResponse {
-  data: BollingerChartData[];
+  data: ChartData[];
   entryDate: string;
   exitDate: string;
   symbol: string;
@@ -33,6 +34,8 @@ interface Props {
   entryPrice: number;
   exitPrice: number;
   exitReason: string;
+  strategyId?: string;  // "atr_dip_buyer" | "bollinger_bounce" etc.
+  dmaLength?: number;   // for ATR charts (e.g. 200)
 }
 
 function formatChartDate(dateStr: string): string {
@@ -72,13 +75,17 @@ function CandleDot(props: any) {
   );
 }
 
-export default function BollingerTradeChart({ symbol, entryDate, exitDate, entryPrice, exitPrice, exitReason }: Props) {
+export default function BollingerTradeChart({ symbol, entryDate, exitDate, entryPrice, exitPrice, exitReason, strategyId, dmaLength }: Props) {
   const querySymbol = symbol.includes(".NS") ? symbol : `${symbol}.NS`;
+  const isATR = strategyId === "atr_dip_buyer";
+  const dmaParam = isATR ? (dmaLength || 200) : 0;
 
   const { data, isLoading, isError } = useQuery<TradeChartResponse>({
-    queryKey: ["/api/trade-chart", symbol, entryDate, exitDate],
+    queryKey: ["/api/trade-chart", symbol, entryDate, exitDate, dmaParam],
     queryFn: async () => {
-      const res = await apiRequest("GET", `/api/trade-chart?symbol=${encodeURIComponent(querySymbol)}&entryDate=${entryDate}&exitDate=${exitDate}`);
+      let url = `/api/trade-chart?symbol=${encodeURIComponent(querySymbol)}&entryDate=${entryDate}&exitDate=${exitDate}`;
+      if (dmaParam > 0) url += `&dmaLength=${dmaParam}`;
+      const res = await apiRequest("GET", url);
       return res.json();
     },
     staleTime: Infinity, // chart data won't change
@@ -102,30 +109,45 @@ export default function BollingerTradeChart({ symbol, entryDate, exitDate, entry
   }
 
   const chartData = data.data;
+  const hasDMA = chartData.some(d => d.dma !== undefined);
 
   // Find min/max for better Y axis domain
-  const allValues = chartData.flatMap(d => [d.high, d.low, d.upperBand, d.lowerBand, d.stopBand]);
+  const allValues = chartData.flatMap(d => {
+    const vals = [d.high, d.low];
+    if (!isATR) { vals.push(d.upperBand, d.lowerBand, d.stopBand); }
+    if (d.dma) vals.push(d.dma);
+    return vals;
+  });
   const minVal = Math.min(...allValues);
   const maxVal = Math.max(...allValues);
   const padding = (maxVal - minVal) * 0.05;
 
   return (
-    <div className="px-2 py-3" data-testid={`bollinger-chart-${symbol}`}>
+    <div className="px-2 py-3" data-testid={`trade-chart-${symbol}`}>
       <div className="flex flex-col sm:flex-row sm:items-center gap-1 sm:gap-4 mb-2 px-2">
-        <span className="text-xs font-semibold">{symbol} Bollinger Bands</span>
+        <span className="text-xs font-semibold">{symbol} {isATR ? "Price & DMA" : "Bollinger Bands"}</span>
         <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[10px] text-muted-foreground">
           <span className="flex items-center gap-1">
             <span className="w-3 h-[2px] bg-[#e2e8f0] inline-block rounded" /> Close
           </span>
-          <span className="flex items-center gap-1">
-            <span className="w-3 h-[2px] bg-yellow-500 inline-block rounded" /> 20-DMA
-          </span>
-          <span className="flex items-center gap-1">
-            <span className="w-3 h-[1px] bg-blue-400 inline-block" style={{ borderTop: "1px dashed #60a5fa" }} /> ±2σ
-          </span>
-          <span className="flex items-center gap-1">
-            <span className="w-3 h-[1px] bg-red-500/50 inline-block" style={{ borderTop: "1px dashed #ef4444" }} /> −3σ
-          </span>
+          {hasDMA && (
+            <span className="flex items-center gap-1">
+              <span className="w-3 h-[2px] bg-[#f59e0b] inline-block rounded" /> {dmaParam || 200}-DMA
+            </span>
+          )}
+          {!isATR && (
+            <>
+              <span className="flex items-center gap-1">
+                <span className="w-3 h-[2px] bg-yellow-500 inline-block rounded" /> 20-DMA
+              </span>
+              <span className="flex items-center gap-1">
+                <span className="w-3 h-[1px] bg-blue-400 inline-block" style={{ borderTop: "1px dashed #60a5fa" }} /> ±2σ
+              </span>
+              <span className="flex items-center gap-1">
+                <span className="w-3 h-[1px] bg-red-500/50 inline-block" style={{ borderTop: "1px dashed #ef4444" }} /> −3σ
+              </span>
+            </>
+          )}
           <span className="flex items-center gap-1">
             <span className="w-1.5 h-3 bg-[#22c55e] inline-block" style={{ borderRight: "2px dashed #22c55e" }} /> Entry
           </span>
@@ -162,45 +184,60 @@ export default function BollingerTradeChart({ symbol, entryDate, exitDate, entry
               const labels: Record<string, string> = {
                 close: "Close", ma: "20-DMA", upperBand: "+2σ",
                 lowerBand: "−2σ", stopBand: "−3σ Stop", high: "High", low: "Low",
+                dma: `${dmaParam || 200}-DMA`,
               };
               return [`₹${value.toFixed(2)}`, labels[name] || name];
             }}
           />
 
-          {/* Bollinger Band fill (upper band line with gradient) */}
-          <Area
-            type="monotone" dataKey="upperBand"
-            stroke="transparent" fill={`url(#bbFill-${symbol})`}
-            connectNulls isAnimationActive={false}
-          />
+          {/* Bollinger Band lines — only for non-ATR strategies */}
+          {!isATR && (
+            <>
+              {/* Bollinger Band fill (upper band line with gradient) */}
+              <Area
+                type="monotone" dataKey="upperBand"
+                stroke="transparent" fill={`url(#bbFill-${symbol})`}
+                connectNulls isAnimationActive={false}
+              />
 
-          {/* Upper band (+2σ) */}
-          <Line
-            type="monotone" dataKey="upperBand"
-            stroke="#60a5fa" strokeWidth={1} strokeDasharray="4 2"
-            dot={false} name="upperBand" isAnimationActive={false}
-          />
+              {/* Upper band (+2σ) */}
+              <Line
+                type="monotone" dataKey="upperBand"
+                stroke="#60a5fa" strokeWidth={1} strokeDasharray="4 2"
+                dot={false} name="upperBand" isAnimationActive={false}
+              />
 
-          {/* Lower band (-2σ) */}
-          <Line
-            type="monotone" dataKey="lowerBand"
-            stroke="#60a5fa" strokeWidth={1} strokeDasharray="4 2"
-            dot={false} name="lowerBand" isAnimationActive={false}
-          />
+              {/* Lower band (-2σ) */}
+              <Line
+                type="monotone" dataKey="lowerBand"
+                stroke="#60a5fa" strokeWidth={1} strokeDasharray="4 2"
+                dot={false} name="lowerBand" isAnimationActive={false}
+              />
 
-          {/* Stop band (-3σ) */}
-          <Line
-            type="monotone" dataKey="stopBand"
-            stroke="#ef4444" strokeWidth={1} strokeDasharray="3 3"
-            strokeOpacity={0.5} dot={false} name="stopBand" isAnimationActive={false}
-          />
+              {/* Stop band (-3σ) */}
+              <Line
+                type="monotone" dataKey="stopBand"
+                stroke="#ef4444" strokeWidth={1} strokeDasharray="3 3"
+                strokeOpacity={0.5} dot={false} name="stopBand" isAnimationActive={false}
+              />
 
-          {/* 20-DMA (mean) — golden line */}
-          <Line
-            type="monotone" dataKey="ma"
-            stroke="#eab308" strokeWidth={2}
-            dot={false} name="ma" isAnimationActive={false}
-          />
+              {/* 20-DMA (mean) — golden line */}
+              <Line
+                type="monotone" dataKey="ma"
+                stroke="#eab308" strokeWidth={2}
+                dot={false} name="ma" isAnimationActive={false}
+              />
+            </>
+          )}
+
+          {/* N-DMA line (for ATR trades) */}
+          {hasDMA && (
+            <Line
+              type="monotone" dataKey="dma"
+              stroke="#f59e0b" strokeWidth={2}
+              dot={false} name="dma" isAnimationActive={false}
+            />
+          )}
 
           {/* Price line (close) — brighter for visibility */}
           <Line

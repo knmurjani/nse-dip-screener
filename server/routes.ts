@@ -167,7 +167,7 @@ export async function registerRoutes(
   // Run a new backtest and save it permanently
   app.post("/api/backtest/run", async (req, res) => {
     try {
-      const { name, capital, maxPositions, years, fromDate, toDate, strategyId, absoluteStopPct, trailingStopPct, maPeriod, entryBandSigma, stopLossSigma, targetBandSigma, maxHoldDays, allowParallelPositions, watchlistCondition, entryCondition, exitTarget, exitStopBand } = req.body;
+      const { name, capital, maxPositions, years, fromDate, toDate, strategyId, absoluteStopPct, trailingStopPct, maPeriod, entryBandSigma, stopLossSigma, targetBandSigma, maxHoldDays, allowParallelPositions, watchlistCondition, entryCondition, exitTarget, exitStopBand, dmaLength, dipThresholdPct, atrFilterThreshold, limitOrderMultiple, profitTargetMultiple, priceActionExit } = req.body;
       const strategy = strategyId || "atr_dip_buyer";
 
       let result;
@@ -199,6 +199,12 @@ export async function registerRoutes(
           maxHoldDays: maxHoldDays || 10,
           absoluteStopPct: absoluteStopPct || undefined,
           trailingStopPct: trailingStopPct || undefined,
+          dmaLength: dmaLength || undefined,
+          dipThresholdPct: dipThresholdPct || undefined,
+          atrFilterThreshold: atrFilterThreshold || undefined,
+          limitOrderMultiple: limitOrderMultiple !== undefined ? limitOrderMultiple : undefined,
+          profitTargetMultiple: profitTargetMultiple !== undefined ? profitTargetMultiple : undefined,
+          priceActionExit: priceActionExit !== undefined ? priceActionExit : undefined,
         });
       }
 
@@ -217,12 +223,51 @@ export async function registerRoutes(
         "below_-2s_stop": "Drop below −2σ", "below_-3s_stop": "Drop below −3σ", "below_-4s_stop": "Drop below −4σ",
       };
 
+      // Build comprehensive rules template
+      const rulesTemplate = {
+        strategy: strategyDef?.name || strategy,
+        runDate: now,
+        period: { from: result.period.from, to: result.period.to },
+        parameters: {
+          maPeriod: maPeriod || "N/A",
+          capital: `\u20b9${((capital || 1000000) / 100000).toFixed(0)}L`,
+          maxPositions: maxPositions || 10,
+          positionSizing: strategy === "atr_dip_buyer" ? "Dynamic (portfolio / max positions)" : "Fixed (capital / max positions)",
+          allowParallel: allowParallelPositions ? "Yes" : "No",
+        },
+        entry: {
+          watchlistTrigger: watchlistCondition ? condLabels[watchlistCondition] : (strategy === "atr_dip_buyer" ? `Close > ${dmaLength || 200}-DMA + Drop > ${dipThresholdPct || 3}% + ATR% > ${atrFilterThreshold || 3}` : "N/A"),
+          entryCondition: entryCondition ? condLabels[entryCondition] : (strategy === "atr_dip_buyer" ? `Limit order at Close \u2212 ${limitOrderMultiple ?? 0.9}\u00d7ATR(5)` : "N/A"),
+          entryPrice: strategy === "atr_dip_buyer" ? `Limit price (Close \u2212 ${limitOrderMultiple ?? 0.9}\u00d7ATR)` : (entryCondition?.includes("mean") ? "20-DMA value" : "Close at crossover"),
+          dmaLength: strategy === "atr_dip_buyer" ? (dmaLength || 200) : "N/A",
+          dipThreshold: strategy === "atr_dip_buyer" ? `${dipThresholdPct || 3}%` : "N/A",
+          atrFilterThreshold: strategy === "atr_dip_buyer" ? (atrFilterThreshold || 3) : "N/A",
+          limitOrderMultiple: strategy === "atr_dip_buyer" ? (limitOrderMultiple ?? 0.9) : "N/A",
+        },
+        exit: {
+          profitTarget: exitTarget ? condLabels[exitTarget] : (strategy === "atr_dip_buyer" ? `Entry + ${profitTargetMultiple ?? 0.5}\u00d7ATR(5)` : "N/A"),
+          bandStopLoss: exitStopBand ? condLabels[exitStopBand] : "N/A",
+          absoluteStopLoss: absoluteStopPct ? `\u2212${absoluteStopPct}% from entry` : "N/A",
+          trailingStopLoss: trailingStopPct ? `\u2212${trailingStopPct}% from peak` : "N/A",
+          priceActionExit: strategy === "atr_dip_buyer" ? (priceActionExit !== false ? "Close > previous day's high" : "Disabled") : "N/A",
+          maxHoldDays: maxHoldDays && maxHoldDays > 0 ? `${maxHoldDays} trading days` : "No limit",
+        },
+        data: {
+          universe: "Nifty 500 (497 stocks)",
+          dataSource: result.summary.dataSource,
+        },
+      };
+
       const allParams = {
         ...commonParams, strategyId: strategy, absoluteStopPct, trailingStopPct,
         maPeriod, entryBandSigma, stopLossSigma, targetBandSigma, maxHoldDays, fromDate, toDate,
         allowParallelPositions,
         // Configurable conditions
         watchlistCondition, entryCondition, exitTarget, exitStopBand,
+        // ATR-specific params
+        dmaLength, dipThresholdPct, atrFilterThreshold, limitOrderMultiple, profitTargetMultiple, priceActionExit,
+        // Comprehensive rules template
+        rulesTemplate,
         // Human-readable rules for this specific run
         entryRules: [
           ...(strategyDef?.entryRules || []),
@@ -233,8 +278,8 @@ export async function registerRoutes(
           ...(strategyDef?.exitRules || []),
           ...(exitTarget ? [{ name: "Profit Target", description: condLabels[exitTarget] || exitTarget }] : []),
           ...(exitStopBand ? [{ name: "Band Stop", description: condLabels[exitStopBand] || exitStopBand }] : []),
-          ...(absoluteStopPct ? [{ name: "Absolute Stop", description: `−${absoluteStopPct}% from entry` }] : []),
-          ...(trailingStopPct ? [{ name: "Trailing Stop", description: `−${trailingStopPct}% from peak` }] : []),
+          ...(absoluteStopPct ? [{ name: "Absolute Stop", description: `\u2212${absoluteStopPct}% from entry` }] : []),
+          ...(trailingStopPct ? [{ name: "Trailing Stop", description: `\u2212${trailingStopPct}% from peak` }] : []),
           ...(maxHoldDays && maxHoldDays > 0 ? [{ name: "Time Exit", description: `${maxHoldDays} trading days max` }] : []),
         ],
       };
@@ -326,14 +371,16 @@ export async function registerRoutes(
       const maPeriod = parseInt(req.query.maPeriod as string) || 20;
       const sigma = parseFloat(req.query.sigma as string) || 2;
       const stopSigma = parseFloat(req.query.stopSigma as string) || 3;
+      const dmaLengthParam = parseInt(req.query.dmaLength as string) || 0; // for ATR charts
 
       if (!symbol || !entryDate || !exitDate) {
         return res.status(400).json({ error: "symbol, entryDate, exitDate required" });
       }
 
       // Fetch bars with extra buffer before entry for MA warmup + context
+      const warmupPeriod = Math.max(maPeriod, dmaLengthParam) + 40;
       const fromD = new Date(entryDate);
-      fromD.setDate(fromD.getDate() - (maPeriod + 40)); // extra buffer for MA warmup + visual context
+      fromD.setDate(fromD.getDate() - warmupPeriod); // extra buffer for MA warmup + visual context
       const toD = new Date(exitDate);
       toD.setDate(toD.getDate() + 10); // show a bit after exit
       const from = fromD.toISOString().split("T")[0];
@@ -377,24 +424,38 @@ export async function registerRoutes(
         } catch {}
       }
 
-      if (bars.length < maPeriod + 5) {
+      const minBarsNeeded = Math.max(maPeriod, dmaLengthParam) + 5;
+      if (bars.length < minBarsNeeded) {
         return res.json({ bars: [], bands: [], entryDate, exitDate });
       }
 
-      // Compute Bollinger Bands for each bar
+      // Compute Bollinger Bands and optional DMA for each bar
       const bandData: {
         date: string; close: number; open: number; high: number; low: number;
         ma: number; upperBand: number; lowerBand: number; stopBand: number;
+        dma?: number;
       }[] = [];
 
+      // Determine the minimum index we can start producing data from
+      const minStartIdx = Math.max(maPeriod - 1, dmaLengthParam > 0 ? dmaLengthParam - 1 : 0);
+
       for (let i = 0; i < bars.length; i++) {
-        if (i < maPeriod - 1) continue;
+        if (i < minStartIdx) continue;
+        // Bollinger Bands (always computed from maPeriod)
         let sum = 0;
         for (let j = i - maPeriod + 1; j <= i; j++) sum += bars[j].close;
         const ma = sum / maPeriod;
         let sumSq = 0;
         for (let j = i - maPeriod + 1; j <= i; j++) sumSq += (bars[j].close - ma) ** 2;
         const std = Math.sqrt(sumSq / maPeriod);
+
+        // Optional long DMA (for ATR charts)
+        let dmaVal: number | undefined;
+        if (dmaLengthParam > 0 && i >= dmaLengthParam - 1) {
+          let dmaSum = 0;
+          for (let j = i - dmaLengthParam + 1; j <= i; j++) dmaSum += bars[j].close;
+          dmaVal = Math.round((dmaSum / dmaLengthParam) * 100) / 100;
+        }
 
         bandData.push({
           date: bars[i].date,
@@ -406,6 +467,7 @@ export async function registerRoutes(
           upperBand: Math.round((ma + sigma * std) * 100) / 100,
           lowerBand: Math.round((ma - sigma * std) * 100) / 100,
           stopBand: Math.round((ma - stopSigma * std) * 100) / 100,
+          ...(dmaVal !== undefined ? { dma: dmaVal } : {}),
         });
       }
 

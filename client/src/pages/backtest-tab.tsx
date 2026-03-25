@@ -147,8 +147,16 @@ export default function BacktestTab() {
   const [formEntryCond, setFormEntryCond] = useState("cross_above_-2s");
   const [formExitTarget, setFormExitTarget] = useState("reach_mean");
   const [formExitStopBand, setFormExitStopBand] = useState("below_-3s");
+  // Form state — ATR Dip Buyer-specific
+  const [formDmaLength, setFormDmaLength] = useState("200");
+  const [formDipThreshold, setFormDipThreshold] = useState("3");
+  const [formAtrFilter, setFormAtrFilter] = useState("3");
+  const [formLimitMult, setFormLimitMult] = useState("0.9");
+  const [formProfitMult, setFormProfitMult] = useState("0.5");
+  const [formPriceAction, setFormPriceAction] = useState(true);
 
   const isBollinger = strategyId === "bollinger_bounce";
+  const isATR = strategyId === "atr_dip_buyer";
 
   // Reset selection when strategy changes so we don't show stale data from another strategy
   useEffect(() => {
@@ -212,6 +220,14 @@ export default function BacktestTab() {
         body.entryCondition = formEntryCond;
         body.exitTarget = formExitTarget;
         body.exitStopBand = formExitStopBand;
+      }
+      if (isATR) {
+        body.dmaLength = Number(formDmaLength);
+        body.dipThresholdPct = Number(formDipThreshold);
+        body.atrFilterThreshold = Number(formAtrFilter);
+        body.limitOrderMultiple = Number(formLimitMult);
+        body.profitTargetMultiple = Number(formProfitMult);
+        body.priceActionExit = formPriceAction;
       }
       const res = await apiRequest("POST", "/api/backtest/run", body);
       const result: BacktestResult = await res.json();
@@ -462,6 +478,91 @@ export default function BacktestTab() {
                     </label>
                   </div>
                 )}
+              </div>
+              </>
+            )}
+            {/* Row 3b: ATR Dip Buyer params */}
+            {isATR && (
+              <>
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 pt-2 border-t border-border">
+                <div>
+                  <label className="text-[10px] text-muted-foreground block mb-1">DMA Length</label>
+                  <Select value={formDmaLength} onValueChange={setFormDmaLength}>
+                    <SelectTrigger className="h-8 text-xs" data-testid="select-dma-length">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="50" className="text-xs">50</SelectItem>
+                      <SelectItem value="100" className="text-xs">100</SelectItem>
+                      <SelectItem value="200" className="text-xs">200</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div>
+                  <label className="text-[10px] text-muted-foreground block mb-1">Dip Threshold</label>
+                  <Select value={formDipThreshold} onValueChange={setFormDipThreshold}>
+                    <SelectTrigger className="h-8 text-xs" data-testid="select-dip-threshold">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="2" className="text-xs">2%</SelectItem>
+                      <SelectItem value="3" className="text-xs">3%</SelectItem>
+                      <SelectItem value="5" className="text-xs">5%</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div>
+                  <label className="text-[10px] text-muted-foreground block mb-1">ATR Filter</label>
+                  <Select value={formAtrFilter} onValueChange={setFormAtrFilter}>
+                    <SelectTrigger className="h-8 text-xs" data-testid="select-atr-filter">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="2" className="text-xs">2</SelectItem>
+                      <SelectItem value="3" className="text-xs">3</SelectItem>
+                      <SelectItem value="4" className="text-xs">4</SelectItem>
+                      <SelectItem value="5" className="text-xs">5</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div>
+                  <label className="text-[10px] text-muted-foreground block mb-1">Limit Order ×ATR</label>
+                  <Select value={formLimitMult} onValueChange={setFormLimitMult}>
+                    <SelectTrigger className="h-8 text-xs" data-testid="select-limit-mult">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="0.5" className="text-xs">0.5</SelectItem>
+                      <SelectItem value="0.7" className="text-xs">0.7</SelectItem>
+                      <SelectItem value="0.9" className="text-xs">0.9</SelectItem>
+                      <SelectItem value="1.0" className="text-xs">1.0</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div>
+                  <label className="text-[10px] text-muted-foreground block mb-1">Profit Target ×ATR</label>
+                  <Select value={formProfitMult} onValueChange={setFormProfitMult}>
+                    <SelectTrigger className="h-8 text-xs" data-testid="select-profit-mult">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="0.3" className="text-xs">0.3</SelectItem>
+                      <SelectItem value="0.5" className="text-xs">0.5</SelectItem>
+                      <SelectItem value="0.7" className="text-xs">0.7</SelectItem>
+                      <SelectItem value="1.0" className="text-xs">1.0</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="flex items-center pt-4">
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox" checked={formPriceAction}
+                      onChange={e => setFormPriceAction(e.target.checked)}
+                      className="h-4 w-4 rounded border-input accent-primary" data-testid="input-price-action"
+                    />
+                    <span className="text-[10px] text-muted-foreground">Price Action Exit</span>
+                  </label>
+                </div>
               </div>
               </>
             )}
@@ -862,9 +963,7 @@ export default function BacktestTab() {
                       <SortHead label="P&L %" field="pnlPct" current={sortField} dir={sortDir} onClick={() => handleSort("pnlPct")} align="right" />
                       <SortHead label="Days" field="daysHeld" current={sortField} dir={sortDir} onClick={() => handleSort("daysHeld")} align="right" />
                       <SortHead label="Exit Reason" field="exitReason" current={sortField} dir={sortDir} onClick={() => handleSort("exitReason")} align="right" />
-                      {strategyId === "bollinger_bounce" && (
-                        <TableHead className="text-[11px] text-center w-10">Chart</TableHead>
-                      )}
+                      <TableHead className="text-[11px] text-center w-10">Chart</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -927,25 +1026,23 @@ export default function BacktestTab() {
                             </p>
                           )}
                         </TableCell>
-                        {strategyId === "bollinger_bounce" && (
-                          <TableCell className="text-center py-2">
-                            <button
-                              className={`p-1 rounded hover:bg-muted/50 transition-colors ${
-                                chartRow === i ? "text-primary bg-primary/10" : "text-muted-foreground"
-                              }`}
-                              onClick={() => setChartRow(chartRow === i ? null : i)}
-                              data-testid={`chart-toggle-${i}`}
-                              title="Toggle Bollinger Band chart"
-                            >
-                              <LineChartIcon className="w-3.5 h-3.5" />
-                            </button>
-                          </TableCell>
-                        )}
+                        <TableCell className="text-center py-2">
+                          <button
+                            className={`p-1 rounded hover:bg-muted/50 transition-colors ${
+                              chartRow === i ? "text-primary bg-primary/10" : "text-muted-foreground"
+                            }`}
+                            onClick={() => setChartRow(chartRow === i ? null : i)}
+                            data-testid={`chart-toggle-${i}`}
+                            title="Toggle trade chart"
+                          >
+                            <LineChartIcon className="w-3.5 h-3.5" />
+                          </button>
+                        </TableCell>
                       </TableRow>
-                      {/* Expanded Bollinger chart row */}
-                      {chartRow === i && strategyId === "bollinger_bounce" && (
+                      {/* Expanded trade chart row */}
+                      {chartRow === i && (
                         <TableRow key={`chart-${t.id ?? i}`} data-testid={`chart-row-${i}`}>
-                          <TableCell colSpan={11} className="p-0 bg-muted/10">
+                          <TableCell colSpan={12} className="p-0 bg-muted/10">
                             <BollingerTradeChart
                               symbol={t.symbol}
                               entryDate={t.entryDate}
@@ -953,6 +1050,8 @@ export default function BacktestTab() {
                               entryPrice={t.entryPrice}
                               exitPrice={t.exitPrice}
                               exitReason={t.exitReason}
+                              strategyId={strategyId}
+                              dmaLength={activeRun?.params_json ? (() => { try { const p = JSON.parse(activeRun.params_json!); return p.dmaLength; } catch { return undefined; } })() : undefined}
                             />
                           </TableCell>
                         </TableRow>
@@ -1033,50 +1132,41 @@ function SortHead({ label, field, current, dir, onClick, align = "left" }: {
   );
 }
 
+function RuleRow({ label, value }: { label: string; value: string | number }) {
+  const isNA = value === "N/A" || value === "\u2014";
+  return (
+    <div className="flex items-baseline justify-between py-1 gap-4">
+      <span className="text-[11px] text-muted-foreground shrink-0">{label}</span>
+      <span className={`text-[11px] tabular-nums text-right ${isNA ? "text-muted-foreground/40 italic" : "font-medium"}`}>
+        {String(value)}
+      </span>
+    </div>
+  );
+}
+
 function StrategyRulesCard({ strategyId, paramsJson }: { strategyId: string; paramsJson?: string }) {
   const [open, setOpen] = useState(false);
-  const isBollingerStrat = strategyId === "bollinger_bounce" || strategyId === "bollinger_mr";
 
-  // Try to use rules saved with this specific backtest run
-  let savedEntry: string[] | null = null;
-  let savedExit: { name: string; description: string }[] | null = null;
+  // Parse the saved params
   let savedParams: Record<string, unknown> | null = null;
+  let tpl: Record<string, any> | null = null;
   if (paramsJson) {
     try {
       const p = JSON.parse(paramsJson);
       savedParams = p;
-      if (p.entryRules && Array.isArray(p.entryRules)) savedEntry = p.entryRules;
-      if (p.exitRules && Array.isArray(p.exitRules)) savedExit = p.exitRules;
+      if (p.rulesTemplate) tpl = p.rulesTemplate;
     } catch {}
   }
 
-  // Fallback to generic strategy rules if no saved rules
-  const defaultRules = isBollingerStrat ? {
-    entry: ["N-day MA + StdDev bands", "Watchlist: configurable band trigger", "Entry: configurable crossover level", "Fixed sizing (no compounding)"],
-    exit: [{ name: "Profit Target", desc: "Configurable band target" }, { name: "Band Stop", desc: "Configurable band stop" }],
-  } : {
-    entry: ["Above 200-DMA", "Drop > 3%", "ATR% > 3%", "Limit buy at Close \u2212 0.9\u00d7ATR", "Rank by ATR/Close"],
-    exit: [{ name: "Profit Target", desc: "Entry + 0.5\u00d7ATR(5)" }, { name: "Price Action", desc: "Close > prev high" }, { name: "Time Exit", desc: "10 days max" }],
-  };
-
-  const entryRules = savedEntry || defaultRules.entry;
-  const exitRules = savedExit
-    ? savedExit.map(r => ({ name: r.name, desc: r.description }))
-    : defaultRules.exit;
-
-  // Extract key params to show
-  const paramsList: string[] = [];
-  if (savedParams) {
-    if (savedParams.capitalRs) paramsList.push(`Capital: \u20b9${((savedParams.capitalRs as number) / 100000).toFixed(0)}L`);
-    if (savedParams.maxPositions) paramsList.push(`Max Positions: ${savedParams.maxPositions}`);
-    if (savedParams.maxHoldDays) paramsList.push(`Max Hold: ${savedParams.maxHoldDays}d`);
-    if (savedParams.maPeriod) paramsList.push(`MA: ${savedParams.maPeriod}`);
-    if (savedParams.entryBandSigma) paramsList.push(`Entry \u03c3: ${savedParams.entryBandSigma}`);
-    if (savedParams.targetBandSigma) paramsList.push(`Target \u03c3: ${savedParams.targetBandSigma}`);
-    if (savedParams.stopLossSigma) paramsList.push(`Stop \u03c3: ${savedParams.stopLossSigma}`);
-    if (savedParams.absoluteStopPct) paramsList.push(`Abs Stop: ${savedParams.absoluteStopPct}%`);
-    if (savedParams.trailingStopPct) paramsList.push(`Trail Stop: ${savedParams.trailingStopPct}%`);
-    if (savedParams.allowParallelPositions) paramsList.push(`Parallel: Yes`);
+  // Build compact summary for the collapsed header
+  const summaryParts: string[] = [];
+  if (tpl) {
+    summaryParts.push(tpl.strategy || strategyId);
+    if (tpl.parameters?.capital) summaryParts.push(String(tpl.parameters.capital));
+    if (tpl.parameters?.maxPositions) summaryParts.push(`${tpl.parameters.maxPositions} pos`);
+  } else if (savedParams) {
+    if (savedParams.capitalRs) summaryParts.push(`\u20b9${((savedParams.capitalRs as number) / 100000).toFixed(0)}L`);
+    if (savedParams.maxPositions) summaryParts.push(`${savedParams.maxPositions} pos`);
   }
 
   return (
@@ -1085,10 +1175,10 @@ function StrategyRulesCard({ strategyId, paramsJson }: { strategyId: string; par
         <CardTitle className="text-xs font-semibold flex items-center justify-between">
           <span className="flex items-center gap-2">
             <Info className="w-3.5 h-3.5 text-primary" />
-            Entry & Exit Rules
-            {paramsList.length > 0 && (
+            Backtest Configuration
+            {summaryParts.length > 0 && (
               <span className="font-normal text-[10px] text-muted-foreground">
-                ({paramsList.join(" \u00b7 ")})
+                ({summaryParts.join(" \u00b7 ")})
               </span>
             )}
           </span>
@@ -1097,36 +1187,67 @@ function StrategyRulesCard({ strategyId, paramsJson }: { strategyId: string; par
       </CardHeader>
       {open && (
         <CardContent className="px-4 pb-3 pt-0">
-          <div className="grid sm:grid-cols-2 gap-4">
-            <div>
-              <h4 className="text-[11px] font-semibold text-muted-foreground flex items-center gap-1.5 mb-2">
-                <Crosshair className="w-3 h-3 text-primary" /> Entry Rules
-              </h4>
-              <ol className="space-y-1.5">
-                {entryRules.map((rule, i) => (
-                  <li key={i} className="flex items-start gap-2">
-                    <span className="flex-shrink-0 w-4 h-4 rounded-full bg-primary/10 text-primary flex items-center justify-center text-[9px] font-bold mt-0.5">
-                      {i + 1}
-                    </span>
-                    <span className="text-[11px] text-muted-foreground">{rule}</span>
-                  </li>
-                ))}
-              </ol>
-            </div>
-            <div>
-              <h4 className="text-[11px] font-semibold text-muted-foreground flex items-center gap-1.5 mb-2">
-                <Clock className="w-3 h-3 text-primary" /> Exit Rules
-              </h4>
-              <div className="space-y-1.5">
-                {exitRules.map((rule, i) => (
-                  <div key={i} className="flex items-start gap-2">
-                    <Badge variant="outline" className="text-[9px] px-1.5 shrink-0">{rule.name}</Badge>
-                    <span className="text-[11px] text-muted-foreground">{rule.desc}</span>
-                  </div>
-                ))}
+          {tpl ? (
+            <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-x-6 gap-y-3">
+              {/* PARAMETERS */}
+              <div>
+                <h4 className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground/70 mb-1.5 border-b border-border pb-1">
+                  Parameters
+                </h4>
+                <RuleRow label="MA Period" value={tpl.parameters?.maPeriod ?? "N/A"} />
+                <RuleRow label="Capital" value={tpl.parameters?.capital ?? "N/A"} />
+                <RuleRow label="Max Positions" value={tpl.parameters?.maxPositions ?? "N/A"} />
+                <RuleRow label="Position Sizing" value={tpl.parameters?.positionSizing ?? "N/A"} />
+                <RuleRow label="Allow Parallel" value={tpl.parameters?.allowParallel ?? "No"} />
+              </div>
+              {/* ENTRY RULES */}
+              <div>
+                <h4 className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground/70 mb-1.5 border-b border-border pb-1 flex items-center gap-1">
+                  <Crosshair className="w-3 h-3 text-primary" /> Entry Rules
+                </h4>
+                <RuleRow label="Watchlist Trigger" value={tpl.entry?.watchlistTrigger ?? "N/A"} />
+                <RuleRow label="Entry Condition" value={tpl.entry?.entryCondition ?? "N/A"} />
+                <RuleRow label="Entry Price" value={tpl.entry?.entryPrice ?? "N/A"} />
+                <RuleRow label="DMA Length" value={tpl.entry?.dmaLength ?? "N/A"} />
+                <RuleRow label="Dip Threshold" value={tpl.entry?.dipThreshold ?? "N/A"} />
+                <RuleRow label="ATR Filter" value={tpl.entry?.atrFilterThreshold ?? "N/A"} />
+                <RuleRow label="Limit Order" value={tpl.entry?.limitOrderMultiple != null && tpl.entry?.limitOrderMultiple !== "N/A" ? `${tpl.entry.limitOrderMultiple}\u00d7ATR` : "N/A"} />
+              </div>
+              {/* EXIT RULES */}
+              <div>
+                <h4 className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground/70 mb-1.5 border-b border-border pb-1 flex items-center gap-1">
+                  <Clock className="w-3 h-3 text-primary" /> Exit Rules
+                </h4>
+                <RuleRow label="Profit Target" value={tpl.exit?.profitTarget ?? "N/A"} />
+                <RuleRow label="Band Stop Loss" value={tpl.exit?.bandStopLoss ?? "N/A"} />
+                <RuleRow label="Absolute Stop" value={tpl.exit?.absoluteStopLoss ?? "N/A"} />
+                <RuleRow label="Trailing Stop" value={tpl.exit?.trailingStopLoss ?? "N/A"} />
+                <RuleRow label="Price Action Exit" value={tpl.exit?.priceActionExit ?? "N/A"} />
+                <RuleRow label="Max Hold Days" value={tpl.exit?.maxHoldDays ?? "No limit"} />
+              </div>
+              {/* DATA */}
+              <div>
+                <h4 className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground/70 mb-1.5 border-b border-border pb-1">
+                  Data
+                </h4>
+                <RuleRow label="Universe" value={tpl.data?.universe ?? "N/A"} />
+                <RuleRow label="Data Source" value={tpl.data?.dataSource ?? "N/A"} />
+                {tpl.period && (
+                  <RuleRow label="Period" value={`${tpl.period.from} \u2192 ${tpl.period.to}`} />
+                )}
               </div>
             </div>
-          </div>
+          ) : (
+            /* Fallback for older runs without rulesTemplate */
+            <div className="text-[11px] text-muted-foreground">
+              <p>No detailed configuration template available for this run.</p>
+              {savedParams && (
+                <pre className="mt-2 text-[10px] bg-muted/30 rounded p-2 overflow-x-auto max-h-40">
+                  {JSON.stringify(savedParams, null, 2)}
+                </pre>
+              )}
+            </div>
+          )}
         </CardContent>
       )}
     </Card>
