@@ -498,3 +498,14 @@ export async function registerRoutes(
 }
 // persistence test Tue Mar 24 18:36:55 UTC 2026
 // volume mount trigger 1774420620
+
+// Temporary debug - remove after volume confirmed
+app.get("/api/debug-env", (_req: any, res: any) => {
+  const railwayVars: Record<string, string> = {};
+  for (const [k, v] of Object.entries(process.env)) {
+    if (k.startsWith("RAILWAY") || k.startsWith("VOLUME") || k === "PWD" || k === "HOME") {
+      railwayVars[k] = v || "";
+    }
+  }
+  res.json(railwayVars);
+});
