@@ -397,10 +397,13 @@ export async function runBollingerMRBacktest(params: BollingerMRParams): Promise
         const isAboveToday = bar.close > entryThreshold;
 
         // Entry triggers when close crosses above the entry threshold
+        // CRITICAL: Require genuine crossover — yesterday must have been BELOW the entry band.
+        // Without this check, a watchlisted stock could drift up over many days and enter
+        // near the mean instead of near the −2σ band (the recurring bug).
         // Guard: don't enter if price is already above the exit target (would exit immediately at a loss)
         const targetLevel = exitTargetCfg.useMean ? ma : (ma + exitTargetCfg.sigma * std);
         const isAlreadyAboveTarget = bar.close > targetLevel;
-        if (isAboveToday && !isAlreadyAboveTarget) {
+        if (wasBelowYesterday && isAboveToday && !isAlreadyAboveTarget) {
           if (!ALLOW_PARALLEL && openPositions.some(p => p.symbol === symbol)) {
             watchlist.delete(symbol);
             continue;

@@ -260,20 +260,31 @@ export default function PositionsTab() {
     staleTime: 30000,
   });
 
-  // Filter deployments by the selected strategy
-  const deployments = allDeployments?.filter(d => d.strategy_id === strategyId) || [];
+  // Show all deployments — users may want to switch across strategies/universes
+  const deployments = allDeployments || [];
+  // Prefer deployments matching the current strategy, then the rest
+  const sortedDeployments = [...deployments].sort((a, b) => {
+    if (a.strategy_id === strategyId && b.strategy_id !== strategyId) return -1;
+    if (b.strategy_id === strategyId && a.strategy_id !== strategyId) return 1;
+    // Active first
+    if (a.status === "active" && b.status !== "active") return -1;
+    if (b.status === "active" && a.status !== "active") return 1;
+    return 0;
+  });
 
-  // Reset selected deployment when strategy changes
+  // Reset selected deployment when strategy changes — pick the first matching deployment
   useEffect(() => {
-    setSelectedDeploymentId(null);
+    const match = sortedDeployments.find(d => d.strategy_id === strategyId);
+    setSelectedDeploymentId(match?.id ?? sortedDeployments[0]?.id ?? null);
   }, [strategyId]);
 
-  // Auto-select first deployment
+  // Auto-select first deployment if none selected
   useEffect(() => {
-    if (deployments.length > 0 && !selectedDeploymentId) {
-      setSelectedDeploymentId(deployments[0].id);
+    if (sortedDeployments.length > 0 && !selectedDeploymentId) {
+      const match = sortedDeployments.find(d => d.strategy_id === strategyId);
+      setSelectedDeploymentId(match?.id ?? sortedDeployments[0].id);
     }
-  }, [deployments, selectedDeploymentId]);
+  }, [sortedDeployments, selectedDeploymentId]);
 
   // Fetch detailed deployment data
   const { data: deployment, isLoading: deploymentLoading } = useQuery<Deployment>({
@@ -282,7 +293,7 @@ export default function PositionsTab() {
     staleTime: 15000,
   });
 
-  const hasDeployments = deployments.length > 0;
+  const hasDeployments = sortedDeployments.length > 0;
 
   return (
     <div className="space-y-4" data-testid="positions-tab">
@@ -310,24 +321,41 @@ export default function PositionsTab() {
         <EmptyState onDeploy={() => setShowDeployForm(true)} />
       ) : (
         <>
-          {/* Deployment selector */}
-          {deployments.length > 1 && (
+          {/* Deployment selector — always visible when deployments exist */}
+          <div className="flex items-center gap-2">
             <Select
               value={String(selectedDeploymentId || "")}
               onValueChange={(v) => setSelectedDeploymentId(Number(v))}
             >
-              <SelectTrigger className="h-9 text-xs" data-testid="select-deployment">
-                <SelectValue placeholder="Select deployment" />
+              <SelectTrigger className="h-10 text-sm font-medium flex-1" data-testid="select-deployment">
+                <div className="flex items-center gap-2 truncate">
+                  <Briefcase className="w-4 h-4 text-primary shrink-0" />
+                  <SelectValue placeholder="Select deployment" />
+                </div>
               </SelectTrigger>
               <SelectContent>
-                {deployments.map((d) => (
-                  <SelectItem key={d.id} value={String(d.id)}>
-                    {d.name} — {STRATEGY_LABELS[d.strategy_id] || d.strategy_id} ({d.mode})
-                  </SelectItem>
-                ))}
+                {sortedDeployments.map((d) => {
+                  const statusColor = d.status === "active" ? "bg-green-500" : d.status === "paused" ? "bg-yellow-500" : "bg-muted-foreground";
+                  return (
+                    <SelectItem key={d.id} value={String(d.id)} className="py-2">
+                      <div className="flex items-center gap-2">
+                        <span className={`w-2 h-2 rounded-full shrink-0 ${statusColor}`} />
+                        <span className="font-medium">{d.name}</span>
+                        <span className="text-muted-foreground">·</span>
+                        <span className="text-muted-foreground text-xs">{STRATEGY_LABELS[d.strategy_id] || d.strategy_id}</span>
+                        <Badge variant="outline" className={`text-[10px] px-1.5 py-0 h-4 ${d.mode === "real" ? "border-green-500/30 text-green-500" : "border-blue-500/30 text-blue-400"}`}>
+                          {d.mode === "real" ? "REAL" : "PAPER"}
+                        </Badge>
+                        <Badge variant="outline" className={`text-[10px] px-1.5 py-0 h-4 ${d.status === "active" ? "border-green-500/30 text-green-500" : d.status === "paused" ? "border-yellow-500/30 text-yellow-500" : "border-muted-foreground/30 text-muted-foreground"}`}>
+                          {d.status.toUpperCase()}
+                        </Badge>
+                      </div>
+                    </SelectItem>
+                  );
+                })}
               </SelectContent>
             </Select>
-          )}
+          </div>
 
           {deploymentLoading ? (
             <div className="space-y-3">
