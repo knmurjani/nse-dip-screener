@@ -24,6 +24,7 @@ import {
 } from "lucide-react";
 import { useStrategy } from "@/lib/strategy-context";
 import { useToast } from "@/hooks/use-toast";
+import MonthlyHeatmap from "@/components/monthly-heatmap";
 
 // ─── Types ───
 
@@ -783,6 +784,14 @@ function DeploymentDashboard({ deployment, onSettings, onAddFunds, onWithdraw, s
             </ResponsiveContainer>
           </CardContent>
         </Card>
+      )}
+
+      {/* Monthly Returns Heatmap */}
+      {snapshots.length > 0 && (
+        <MonthlyHeatmap
+          snapshots={snapshots}
+          initialCapital={d.initial_capital}
+        />
       )}
 
       {/* Sub-tabs */}

@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -22,6 +22,7 @@ import {
 } from "lucide-react";
 import { useStrategy } from "@/lib/strategy-context";
 import BollingerTradeChart from "@/components/bollinger-trade-chart";
+import MonthlyHeatmap, { computeAllMonthlyData } from "@/components/monthly-heatmap";
 
 // ─── Types ───
 
@@ -274,6 +275,34 @@ export default function BacktestTab() {
   const s = data?.summary;
   const chartData = (data?.dailySnapshots ?? []).filter((_, i) => i % 5 === 0);
   const hasRuns = (runs ?? []).length > 0;
+
+  // Monthly returns data for heatmap & KPIs
+  const monthlyData = useMemo(() => {
+    if (!data?.dailySnapshots || !s) return null;
+    return computeAllMonthlyData(data.dailySnapshots, s.initialCapital);
+  }, [data?.dailySnapshots, s]);
+
+  // Nifty benchmark summary stats
+  const niftySummary = useMemo(() => {
+    if (!data?.dailySnapshots || data.dailySnapshots.length < 2) return null;
+    const snaps = data.dailySnapshots;
+    const firstNifty = snaps.find(d => d.niftyClose > 0);
+    const lastNifty = [...snaps].reverse().find(d => d.niftyClose > 0);
+    if (!firstNifty || !lastNifty || firstNifty.niftyClose <= 0) return null;
+    const totalReturnPct = ((lastNifty.niftyClose - firstNifty.niftyClose) / firstNifty.niftyClose) * 100;
+    const days = Math.max(1, (new Date(lastNifty.date).getTime() - new Date(firstNifty.date).getTime()) / (1000 * 60 * 60 * 24));
+    const years = days / 365.25;
+    const annualizedPct = years > 0 ? (Math.pow(1 + totalReturnPct / 100, 1 / years) - 1) * 100 : totalReturnPct;
+    // Max drawdown for Nifty
+    let peak = firstNifty.niftyClose;
+    let maxDD = 0;
+    for (const d of snaps) {
+      if (d.niftyClose > peak) peak = d.niftyClose;
+      const dd = peak > 0 ? ((peak - d.niftyClose) / peak) * 100 : 0;
+      if (dd > maxDD) maxDD = dd;
+    }
+    return { totalReturnPct, annualizedPct, maxDrawdownPct: maxDD };
+  }, [data?.dailySnapshots]);
 
   return (
     <div className="space-y-4" data-testid="backtest-tab">
@@ -751,14 +780,14 @@ export default function BacktestTab() {
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3" data-testid="kpi-row-1">
             <MetricCard
               label="Total Return" value={`${s.totalReturnPct >= 0 ? "+" : ""}${s.totalReturnPct.toFixed(1)}%`}
-              sub={fmtRs(s.totalReturn)}
+              sub={niftySummary ? `${fmtRs(s.totalReturn)} (Nifty: ${niftySummary.totalReturnPct >= 0 ? "+" : ""}${niftySummary.totalReturnPct.toFixed(1)}%)` : fmtRs(s.totalReturn)}
               subColor={s.totalReturnPct >= 0 ? "text-gain" : "text-loss"}
               icon={<TrendingUp className="w-4 h-4" />}
               testId="kpi-total-return"
             />
             <MetricCard
               label="Annualized Return" value={`${s.annualizedReturnPct >= 0 ? "+" : ""}${s.annualizedReturnPct.toFixed(1)}%`}
-              sub={`${s.totalDays} days`}
+              sub={niftySummary ? `${s.totalDays}d (Nifty: ${niftySummary.annualizedPct >= 0 ? "+" : ""}${niftySummary.annualizedPct.toFixed(1)}%)` : `${s.totalDays} days`}
               subColor={s.annualizedReturnPct >= 0 ? "text-gain" : "text-loss"}
               icon={<Activity className="w-4 h-4" />}
               testId="kpi-annualized-return"
@@ -789,7 +818,7 @@ export default function BacktestTab() {
             />
             <MetricCard
               label="Max Drawdown" value={`-${s.maxDrawdownPct.toFixed(1)}%`}
-              sub={s.maxDrawdownDate}
+              sub={niftySummary ? `${s.maxDrawdownDate} (Nifty: -${niftySummary.maxDrawdownPct.toFixed(1)}%)` : s.maxDrawdownDate}
               subColor="text-loss"
               icon={<AlertTriangle className="w-4 h-4" />}
               testId="kpi-max-drawdown"
@@ -809,7 +838,32 @@ export default function BacktestTab() {
             />
           </div>
 
-          {/* Row 3: 6 small metrics */}
+          {/* Row 3: Monthly stats */}
+          {monthlyData && (
+            <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-3 gap-3" data-testid="kpi-row-monthly">
+              <SmallMetric
+                label="Monthly Win Rate"
+                value={`${monthlyData.strategyStats.winRate.toFixed(1)}%`}
+                sub={`${monthlyData.strategyStats.positiveMonths}/${monthlyData.strategyStats.totalMonths} months`}
+                good={monthlyData.strategyStats.winRate >= 50}
+                testId="kpi-monthly-win-rate"
+              />
+              <SmallMetric
+                label={`Best Month (${monthlyData.strategyStats.bestMonth.label})`}
+                value={`+${monthlyData.strategyStats.bestMonth.value.toFixed(1)}%`}
+                good
+                testId="kpi-best-month"
+              />
+              <SmallMetric
+                label={`Worst Month (${monthlyData.strategyStats.worstMonth.label})`}
+                value={`${monthlyData.strategyStats.worstMonth.value.toFixed(1)}%`}
+                good={false}
+                testId="kpi-worst-month"
+              />
+            </div>
+          )}
+
+          {/* Row 4: 6 small metrics */}
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3" data-testid="kpi-row-3">
             <SmallMetric
               label={`Best Win (${s.highestWinSymbol})`}
@@ -939,6 +993,14 @@ export default function BacktestTab() {
                 </CardContent>
               </Card>
             </div>
+          )}
+
+          {/* ── Monthly Returns Heatmap ── */}
+          {data?.dailySnapshots && s && (
+            <MonthlyHeatmap
+              snapshots={data.dailySnapshots}
+              initialCapital={s.initialCapital}
+            />
           )}
 
           {/* ── Trade Log ── */}
