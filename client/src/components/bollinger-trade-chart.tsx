@@ -128,7 +128,7 @@ export default function BollingerTradeChart({ symbol, entryDate, exitDate, entry
         <span className="text-xs font-semibold">{symbol} {isATR ? "Price & DMA" : "Bollinger Bands"}</span>
         <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[10px] text-muted-foreground">
           <span className="flex items-center gap-1">
-            <span className="w-3 h-[2px] bg-[#e2e8f0] inline-block rounded" /> Close
+            <span className="w-3 h-[2px] bg-[#ffffff] inline-block rounded" /> Close
           </span>
           {hasDMA && (
             <span className="flex items-center gap-1">
@@ -138,13 +138,16 @@ export default function BollingerTradeChart({ symbol, entryDate, exitDate, entry
           {!isATR && (
             <>
               <span className="flex items-center gap-1">
-                <span className="w-3 h-[2px] bg-yellow-500 inline-block rounded" /> 20-DMA
+                <span className="w-3 h-[2px] bg-[#9ca3af] inline-block rounded" /> 20-DMA
               </span>
               <span className="flex items-center gap-1">
-                <span className="w-3 h-[1px] bg-blue-400 inline-block" style={{ borderTop: "1px dashed #60a5fa" }} /> ±2σ
+                <span className="w-3 h-[1px] inline-block" style={{ borderTop: "1px dashed #22c55e" }} /> +2σ
               </span>
               <span className="flex items-center gap-1">
-                <span className="w-3 h-[1px] bg-red-500/50 inline-block" style={{ borderTop: "1px dashed #ef4444" }} /> −3σ
+                <span className="w-3 h-[1px] inline-block" style={{ borderTop: "1px dashed #ef4444" }} /> −2σ
+              </span>
+              <span className="flex items-center gap-1">
+                <span className="w-3 h-[1px] inline-block" style={{ borderTop: "1px dashed #991b1b" }} /> −3σ
               </span>
             </>
           )}
@@ -160,8 +163,8 @@ export default function BollingerTradeChart({ symbol, entryDate, exitDate, entry
         <ComposedChart data={chartData} margin={{ top: 8, right: 8, bottom: 4, left: 8 }}>
           <defs>
             <linearGradient id={`bbFill-${symbol}`} x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor="#3b82f6" stopOpacity={0.08} />
-              <stop offset="100%" stopColor="#3b82f6" stopOpacity={0.02} />
+              <stop offset="0%" stopColor="#9ca3af" stopOpacity={0.08} />
+              <stop offset="100%" stopColor="#9ca3af" stopOpacity={0.02} />
             </linearGradient>
           </defs>
           <CartesianGrid strokeDasharray="3 3" stroke="hsl(220, 12%, 18%)" />
@@ -203,28 +206,28 @@ export default function BollingerTradeChart({ symbol, entryDate, exitDate, entry
               {/* Upper band (+2σ) */}
               <Line
                 type="monotone" dataKey="upperBand"
-                stroke="#60a5fa" strokeWidth={1} strokeDasharray="4 2"
+                stroke="#22c55e" strokeWidth={1} strokeDasharray="4 2"
                 dot={false} name="upperBand" isAnimationActive={false}
               />
 
               {/* Lower band (-2σ) */}
               <Line
                 type="monotone" dataKey="lowerBand"
-                stroke="#60a5fa" strokeWidth={1} strokeDasharray="4 2"
+                stroke="#ef4444" strokeWidth={1} strokeDasharray="4 2"
                 dot={false} name="lowerBand" isAnimationActive={false}
               />
 
               {/* Stop band (-3σ) */}
               <Line
                 type="monotone" dataKey="stopBand"
-                stroke="#ef4444" strokeWidth={1} strokeDasharray="3 3"
-                strokeOpacity={0.5} dot={false} name="stopBand" isAnimationActive={false}
+                stroke="#991b1b" strokeWidth={1} strokeDasharray="3 3"
+                dot={false} name="stopBand" isAnimationActive={false}
               />
 
-              {/* 20-DMA (mean) — golden line */}
+              {/* 20-DMA (mean) — neutral gray */}
               <Line
                 type="monotone" dataKey="ma"
-                stroke="#eab308" strokeWidth={2}
+                stroke="#9ca3af" strokeWidth={1.5}
                 dot={false} name="ma" isAnimationActive={false}
               />
             </>
@@ -239,10 +242,10 @@ export default function BollingerTradeChart({ symbol, entryDate, exitDate, entry
             />
           )}
 
-          {/* Price line (close) — brighter for visibility */}
+          {/* Price line (close) — pure white */}
           <Line
             type="monotone" dataKey="close"
-            stroke="#e2e8f0" strokeWidth={2}
+            stroke="#ffffff" strokeWidth={2}
             dot={false} name="close" isAnimationActive={false}
           />
 

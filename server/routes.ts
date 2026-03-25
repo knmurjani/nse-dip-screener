@@ -12,7 +12,7 @@ import { getFilterBreakdown, clearFilterBreakdownCache } from "./filter-breakdow
 import { getPortfolioSummary, runDailyLifecycle } from "./live-portfolio";
 import { runBollingerScreener, clearBollingerCache } from "./screener-bollinger";
 import { getAllStrategies, getStrategy } from "./strategies";
-import { runDeploymentLifecycle, runPreMarketCheck, runEndOfDaySummary } from "./lifecycle";
+import { runDeploymentLifecycle, runPreMarketCheck, runEndOfDaySummary, isMarketOpen } from "./lifecycle";
 import { sendMorningBrief, sendDailyPnLSummary, sendTelegramMessage } from "./telegram";
 import { startTelegramBot } from "./telegram-bot";
 import { istNow as getIstNow } from "./storage";
@@ -1028,7 +1028,8 @@ export async function registerRoutes(
     }
     try {
       const kite = getKite();
-      const response = await kite.placeOrder("regular", {
+      const variety = isMarketOpen() ? "regular" : "amo";
+      const response = await kite.placeOrder(variety, {
         exchange: order.exchange || "NSE",
         tradingsymbol: order.symbol,
         transaction_type: order.transaction_type,

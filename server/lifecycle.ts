@@ -20,6 +20,18 @@ import {
   sendRiskAlert, sendSystemAlert,
 } from "./telegram";
 
+// ─── Market Hours Detection (IST) ───
+
+export function isMarketOpen(): boolean {
+  const now = new Date();
+  const istOffsetMs = 5.5 * 60 * 60 * 1000;
+  const istTime = new Date(now.getTime() + istOffsetMs);
+  const istHour = istTime.getUTCHours();
+  const istMinute = istTime.getUTCMinutes();
+  const timeValue = istHour * 100 + istMinute;
+  return timeValue >= 915 && timeValue <= 1530; // 9:15 AM to 3:30 PM IST
+}
+
 // ─── Order Retry with Exponential Backoff ───
 
 const MAX_RETRIES = 3;
@@ -28,11 +40,12 @@ const RETRY_DELAYS = [1000, 2000, 4000]; // exponential backoff in ms
 async function placeKiteOrderWithRetry(
   kite: any,
   orderParams: any,
+  variety: string = "regular",
   retries: number = MAX_RETRIES
 ): Promise<{ order_id: string } | null> {
   for (let attempt = 0; attempt < retries; attempt++) {
     try {
-      const response = await kite.placeOrder("regular", orderParams);
+      const response = await kite.placeOrder(variety, orderParams);
       return response;
     } catch (err: any) {
       const isRetryable =
@@ -558,7 +571,8 @@ export async function runDeploymentLifecycle(deploymentId: number): Promise<Life
               price: Math.round(entryPrice * 100) / 100,
             };
 
-            const kiteResponse = await placeKiteOrderWithRetry(kite, orderParams);
+            const variety = isMarketOpen() ? "regular" : "amo";
+            const kiteResponse = await placeKiteOrderWithRetry(kite, orderParams, variety);
             const kiteOrderId = kiteResponse?.order_id || null;
 
             // Log order as PLACED
