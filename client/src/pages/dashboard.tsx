@@ -708,118 +708,7 @@ export default function Dashboard() {
 
           {/* RULES TAB */}
           <TabsContent value="rules" className="mt-4">
-            <div className="grid gap-4 md:grid-cols-2">
-              <Card>
-                <CardHeader className="py-3 px-4">
-                  <CardTitle className="text-sm font-semibold flex items-center gap-2">
-                    <Crosshair className="w-4 h-4 text-primary" />
-                    Entry Rules
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="px-4 pb-4 space-y-3">
-                  <RuleItem
-                    step={1}
-                    title="Universe"
-                    desc="NSE stocks with market cap > ₹1,000 Crores"
-                  />
-                  <RuleItem
-                    step={2}
-                    title="Uptrend Filter"
-                    desc="Close must be above the 200-day moving average"
-                  />
-                  <RuleItem
-                    step={3}
-                    title="Dip Trigger"
-                    desc="Close drops > 3% compared to prior day's close (signal day)"
-                  />
-                  <RuleItem
-                    step={4}
-                    title="Volatility Filter"
-                    desc="(100 × ATR(5) / Close) must be > 3 — ensures sufficient volatility"
-                  />
-                  <RuleItem
-                    step={5}
-                    title="Limit Order"
-                    desc="Next day, place limit buy at Close − 0.9 × ATR(5) to buy even cheaper"
-                  />
-                  <RuleItem
-                    step={6}
-                    title="Stock Selection"
-                    desc="If multiple signals, prefer highest ATR(5) / Close (setup score)"
-                  />
-                </CardContent>
-              </Card>
-
-              <Card>
-                <CardHeader className="py-3 px-4">
-                  <CardTitle className="text-sm font-semibold flex items-center gap-2">
-                    <Clock className="w-4 h-4 text-primary" />
-                    Exit Rules
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="px-4 pb-4 space-y-3">
-                  <RuleItem
-                    step={1}
-                    title="Time-Based Exit"
-                    desc="Close any position held for more than 10 trading days"
-                  />
-                  <RuleItem
-                    step={2}
-                    title="Price Action Exit"
-                    desc="Exit when stock closes above the previous day's high (rebound underway)"
-                  />
-                  <RuleItem
-                    step={3}
-                    title="Profit Target"
-                    desc="Exit if price hits Entry + 0.5 × ATR(5) — triggered on days after entry"
-                  />
-                  <div className="pt-2 border-t border-border">
-                    <p className="text-[11px] text-muted-foreground leading-relaxed">
-                      Exit as soon as any single rule is triggered. The
-                      time-based exit is the backstop — most trades should
-                      exit via price action or profit target within a few days.
-                    </p>
-                  </div>
-                </CardContent>
-              </Card>
-
-              <Card className="md:col-span-2">
-                <CardHeader className="py-3 px-4">
-                  <CardTitle className="text-sm font-semibold flex items-center gap-2">
-                    <Activity className="w-4 h-4 text-primary" />
-                    Key Indicators Explained
-                  </CardTitle>
-                </CardHeader>
-                <CardContent className="px-4 pb-4">
-                  <div className="grid sm:grid-cols-2 gap-x-8 gap-y-3">
-                    <IndicatorItem
-                      term="200-Day MA"
-                      def="Average closing price over the last 200 trading days. Stocks above this are in an uptrend."
-                    />
-                    <IndicatorItem
-                      term="ATR(5)"
-                      def="Average True Range over 5 days — measures recent volatility. Higher = more daily price swings."
-                    />
-                    <IndicatorItem
-                      term="ATR% of Close"
-                      def="(100 × ATR(5) / Close). Normalised volatility. Must be > 3% to qualify."
-                    />
-                    <IndicatorItem
-                      term="Setup Score"
-                      def="ATR(5) / Close × 100. Ranks stocks by volatility — higher scores get priority."
-                    />
-                    <IndicatorItem
-                      term="Limit Buy Price"
-                      def="Close − 0.9 × ATR(5). Your limit order price for the next trading day."
-                    />
-                    <IndicatorItem
-                      term="Profit Target"
-                      def="Close + 0.5 × ATR(5). Take profit when price reaches this level."
-                    />
-                  </div>
-                </CardContent>
-              </Card>
-            </div>
+            <StrategyRulesTab strategyId={strategyId} />
           </TabsContent>
         </Tabs>
       </main>
@@ -926,6 +815,138 @@ function SortableHeader({
         )}
       </div>
     </TableHead>
+  );
+}
+
+// ─── Strategy-specific Rules Tab ───
+
+const STRATEGY_RULES: Record<string, {
+  entry: { title: string; desc: string }[];
+  exit: { title: string; desc: string }[];
+  exitNote?: string;
+  indicators: { term: string; def: string }[];
+}> = {
+  atr_dip_buyer: {
+    entry: [
+      { title: "Universe", desc: "NSE stocks with market cap > \u20b91,000 Crores" },
+      { title: "Uptrend Filter", desc: "Close must be above the 200-day moving average" },
+      { title: "Dip Trigger", desc: "Close drops > 3% compared to prior day's close (signal day)" },
+      { title: "Volatility Filter", desc: "(100 \u00d7 ATR(5) / Close) must be > 3 \u2014 ensures sufficient volatility" },
+      { title: "Limit Order", desc: "Next day, place limit buy at Close \u2212 0.9 \u00d7 ATR(5) to buy even cheaper" },
+      { title: "Stock Selection", desc: "If multiple signals, prefer highest ATR(5) / Close (setup score)" },
+    ],
+    exit: [
+      { title: "Time-Based Exit", desc: "Close any position held for more than 10 trading days" },
+      { title: "Price Action Exit", desc: "Exit when stock closes above the previous day's high (rebound underway)" },
+      { title: "Profit Target", desc: "Exit if price hits Entry + 0.5 \u00d7 ATR(5) \u2014 triggered on days after entry" },
+    ],
+    exitNote: "Exit as soon as any single rule is triggered. The time-based exit is the backstop \u2014 most trades should exit via price action or profit target within a few days.",
+    indicators: [
+      { term: "200-Day MA", def: "Average closing price over the last 200 trading days. Stocks above this are in an uptrend." },
+      { term: "ATR(5)", def: "Average True Range over 5 days \u2014 measures recent volatility. Higher = more daily price swings." },
+      { term: "ATR% of Close", def: "(100 \u00d7 ATR(5) / Close). Normalised volatility. Must be > 3% to qualify." },
+      { term: "Setup Score", def: "ATR(5) / Close \u00d7 100. Ranks stocks by volatility \u2014 higher scores get priority." },
+      { term: "Limit Buy Price", def: "Close \u2212 0.9 \u00d7 ATR(5). Your limit order price for the next trading day." },
+      { term: "Profit Target", def: "Close + 0.5 \u00d7 ATR(5). Take profit when price reaches this level." },
+    ],
+  },
+  bollinger_bounce: {
+    entry: [
+      { title: "Bollinger Bands", desc: "Calculate 20-day moving average (mean) and standard deviation" },
+      { title: "Watchlist", desc: "Stock drops below \u22122\u03c3 band (lower Bollinger Band)" },
+      { title: "Entry Signal", desc: "Stock crosses back above \u22122\u03c3 on the way up \u2014 buy at market close" },
+      { title: "Position Sizing", desc: "Dynamic: current portfolio value / max positions (with compounding)" },
+      { title: "Stock Selection", desc: "Rank by distance below mean \u2014 deeper dip = higher conviction" },
+    ],
+    exit: [
+      { title: "Mean Target", desc: "Price reaches the 20-day moving average (mean) \u2014 mean reversion complete" },
+      { title: "\u22123\u03c3 Stop Loss", desc: "Price drops to \u22123\u03c3 band \u2014 extreme deviation, cut loss" },
+      { title: "Time Exit", desc: "10 trading days maximum hold (configurable)" },
+    ],
+    exitNote: "Exit at the mean is the primary target. The \u22123\u03c3 stop protects against further collapse. Time exit prevents capital from being stuck.",
+    indicators: [
+      { term: "20-DMA", def: "20-day moving average \u2014 the \u2018mean\u2019 in mean-reversion. This is the profit target." },
+      { term: "Standard Deviation (\u03c3)", def: "Measures price dispersion around the mean. Wider bands = higher volatility." },
+      { term: "\u22122\u03c3 Band", def: "Lower Bollinger Band. Watchlist trigger when price drops below this level." },
+      { term: "\u22123\u03c3 Band", def: "Extreme lower band. Stop loss level \u2014 price rarely stays below this." },
+      { term: "Setup Score", def: "Distance below mean as %. Deeper dip = higher conviction for bounce." },
+    ],
+  },
+  bollinger_mr: {
+    entry: [
+      { title: "Bollinger Bands", desc: "Calculate 20-day moving average (mean) and standard deviation" },
+      { title: "Watchlist", desc: "Stock drops below \u22122\u03c3 band (lower Bollinger Band)" },
+      { title: "Entry Signal", desc: "Stock crosses back above the 20-DMA (mean) \u2014 confirmed recovery" },
+      { title: "Entry Price", desc: "The 20-DMA value at the crossover point (not the close price)" },
+      { title: "Position Sizing", desc: "Fixed: Capital / Max Positions (no compounding \u2014 matches original Python strategy)" },
+      { title: "Parallel Trades", desc: "Configurable: same stock can have multiple open positions if enabled" },
+    ],
+    exit: [
+      { title: "+2\u03c3 Target", desc: "Close crosses above +2\u03c3 upper band \u2014 full mean reversion to the other side" },
+      { title: "\u22122\u03c3 Stop Loss", desc: "Close drops below \u22122\u03c3 lower band \u2014 cut loss" },
+    ],
+    exitNote: "No time exit by default \u2014 trades can be held until the +2\u03c3 target or \u22122\u03c3 stop is hit. Time exit can be enabled from the backtest console.",
+    indicators: [
+      { term: "20-DMA", def: "20-day moving average. Entry trigger when price crosses above this level after being on the watchlist." },
+      { term: "Standard Deviation (\u03c3)", def: "Measures price dispersion. Used to calculate the \u00b12\u03c3 bands." },
+      { term: "\u22122\u03c3 Band", def: "Lower Bollinger Band. Watchlist trigger AND stop loss level." },
+      { term: "+2\u03c3 Band", def: "Upper Bollinger Band. Profit target \u2014 exit when price reaches this level." },
+      { term: "No Compounding", def: "Position size is fixed at Capital / Max Positions regardless of portfolio performance." },
+    ],
+  },
+};
+
+function StrategyRulesTab({ strategyId }: { strategyId: string }) {
+  const rules = STRATEGY_RULES[strategyId] || STRATEGY_RULES.atr_dip_buyer;
+  return (
+    <div className="grid gap-4 md:grid-cols-2">
+      <Card>
+        <CardHeader className="py-3 px-4">
+          <CardTitle className="text-sm font-semibold flex items-center gap-2">
+            <Crosshair className="w-4 h-4 text-primary" />
+            Entry Rules
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="px-4 pb-4 space-y-3">
+          {rules.entry.map((r, i) => (
+            <RuleItem key={i} step={i + 1} title={r.title} desc={r.desc} />
+          ))}
+        </CardContent>
+      </Card>
+      <Card>
+        <CardHeader className="py-3 px-4">
+          <CardTitle className="text-sm font-semibold flex items-center gap-2">
+            <Clock className="w-4 h-4 text-primary" />
+            Exit Rules
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="px-4 pb-4 space-y-3">
+          {rules.exit.map((r, i) => (
+            <RuleItem key={i} step={i + 1} title={r.title} desc={r.desc} />
+          ))}
+          {rules.exitNote && (
+            <div className="pt-2 border-t border-border">
+              <p className="text-[11px] text-muted-foreground leading-relaxed">{rules.exitNote}</p>
+            </div>
+          )}
+        </CardContent>
+      </Card>
+      <Card className="md:col-span-2">
+        <CardHeader className="py-3 px-4">
+          <CardTitle className="text-sm font-semibold flex items-center gap-2">
+            <Activity className="w-4 h-4 text-primary" />
+            Key Indicators Explained
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="px-4 pb-4">
+          <div className="grid sm:grid-cols-2 gap-x-8 gap-y-3">
+            {rules.indicators.map((ind, i) => (
+              <IndicatorItem key={i} term={ind.term} def={ind.def} />
+            ))}
+          </div>
+        </CardContent>
+      </Card>
+    </div>
   );
 }
 
