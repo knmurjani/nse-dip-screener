@@ -6,11 +6,13 @@ import { getLoginURL, generateSession, setAccessToken, isAuthenticated, getKite,
 import { getBacktestResult, clearBacktestCache, runBacktest } from "./backtest";
 import { runBollingerMRBacktest } from "./backtest-bollinger-mr";
 import Database from "better-sqlite3";
-import { logSystem, getSystemLogs, getChangelog, DB_PATH, istNow, getDeployments, getDeployment, getActiveDeployments, getDeploymentPositions, getDeploymentTrades, getDeploymentSnapshots, getFundTransactions, getDeploymentChangelog } from "./storage";
+import { logSystem, getSystemLogs, getChangelog, DB_PATH, istNow, getDeployments, getDeployment, getActiveDeployments, getDeploymentPositions, getDeploymentTrades, getDeploymentSnapshots, getFundTransactions, getDeploymentChangelog, getOrdersLog, insertOrder, updateOrderStatus, getOrder } from "./storage";
 import { getFilterBreakdown, clearFilterBreakdownCache } from "./filter-breakdown";
 import { getPortfolioSummary, runDailyLifecycle } from "./live-portfolio";
 import { runBollingerScreener, clearBollingerCache } from "./screener-bollinger";
 import { getAllStrategies, getStrategy } from "./strategies";
+import { runDeploymentLifecycle, runPreMarketCheck, runEndOfDaySummary } from "./lifecycle";
+import { sendMorningBrief, sendDailyPnLSummary } from "./telegram";
 
 export async function registerRoutes(
   httpServer: Server,
@@ -579,7 +581,8 @@ export async function registerRoutes(
       const snapshots = getDeploymentSnapshots(id);
       const funds = getFundTransactions(id);
       const changelog = getDeploymentChangelog(id);
-      res.json({ ...deployment, positions, trades, snapshots, funds, changelog });
+      const orders = getOrdersLog(id, { limit: 100 });
+      res.json({ ...deployment, positions, trades, snapshots, funds, changelog, orders });
     } catch (error: any) {
       res.status(500).json({ error: error.message });
     }
@@ -737,6 +740,111 @@ export async function registerRoutes(
   app.get("/api/deployments/:id/changelog", (req, res) => {
     try {
       res.json(getDeploymentChangelog(parseInt(req.params.id)));
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // ─── Orders Log ───
+
+  app.get("/api/deployments/:id/orders", (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const status = req.query.status as string | undefined;
+      const symbol = req.query.symbol as string | undefined;
+      const limit = parseInt(req.query.limit as string) || 100;
+      const offset = parseInt(req.query.offset as string) || 0;
+      const orders = getOrdersLog(id, { status, symbol, limit, offset });
+      res.json(orders);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.post("/api/deployments/:id/orders", (req, res) => {
+    try {
+      const deploymentId = parseInt(req.params.id);
+      const deployment = getDeployment(deploymentId);
+      if (!deployment) return res.status(404).json({ error: "Deployment not found" });
+      const { symbol, orderType, transactionType, quantity, price, strategy } = req.body;
+      if (!symbol || !orderType || !transactionType || !quantity) {
+        return res.status(400).json({ error: "symbol, orderType, transactionType, quantity required" });
+      }
+      const orderId = insertOrder({
+        deployment_id: deploymentId,
+        symbol,
+        order_type: orderType,
+        transaction_type: transactionType,
+        quantity,
+        price: price || undefined,
+        status: "PLACED",
+        strategy: strategy || deployment.strategy_id,
+      });
+      logSystem("orders", "order_placed", `Deployment #${deploymentId}: ${transactionType} ${quantity} ${symbol} @ ₹${price || 'MKT'}`);
+      res.json(getOrder(orderId));
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.put("/api/orders/:orderId/status", (req, res) => {
+    try {
+      const orderId = parseInt(req.params.orderId);
+      const order = getOrder(orderId);
+      if (!order) return res.status(404).json({ error: "Order not found" });
+      const { status, fillPrice, fillQuantity, kiteOrderId, errorMessage } = req.body;
+      if (!status) return res.status(400).json({ error: "status required" });
+      updateOrderStatus(orderId, {
+        status,
+        fill_price: fillPrice,
+        fill_quantity: fillQuantity,
+        kite_order_id: kiteOrderId,
+        error_message: errorMessage,
+      });
+      logSystem("orders", "status_updated", `Order #${orderId} ${order.symbol}: ${order.status} → ${status}`);
+      res.json(getOrder(orderId));
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // ─── Lifecycle Manual Triggers ───
+
+  app.post("/api/deployments/:id/run-lifecycle", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const deployment = getDeployment(id);
+      if (!deployment) return res.status(404).json({ error: "Deployment not found" });
+      logSystem("lifecycle", "manual_trigger", `Manual lifecycle run for deployment #${id}`);
+      const result = await runDeploymentLifecycle(id);
+      res.json(result);
+    } catch (error: any) {
+      console.error("[API] Lifecycle error:", error.message);
+      res.status(500).json({ error: "Lifecycle failed", message: error.message });
+    }
+  });
+
+  app.post("/api/deployments/:id/send-brief", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const deployment = getDeployment(id);
+      if (!deployment) return res.status(404).json({ error: "Deployment not found" });
+      await sendMorningBrief(id);
+      logSystem("telegram", "brief_sent", `Morning brief sent for deployment #${id}`);
+      res.json({ success: true, message: "Morning brief sent" });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.post("/api/deployments/:id/send-summary", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const deployment = getDeployment(id);
+      if (!deployment) return res.status(404).json({ error: "Deployment not found" });
+      await sendDailyPnLSummary(id);
+      logSystem("telegram", "summary_sent", `Daily P&L summary sent for deployment #${id}`);
+      res.json({ success: true, message: "Daily P&L summary sent" });
     } catch (error: any) {
       res.status(500).json({ error: error.message });
     }

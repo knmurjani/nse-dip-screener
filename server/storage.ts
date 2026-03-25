@@ -418,6 +418,31 @@ sqlite.exec(`
   );
 `);
 
+// ─── Orders Log Table ───
+
+sqlite.exec(`
+  CREATE TABLE IF NOT EXISTS orders_log (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    deployment_id INTEGER NOT NULL,
+    symbol TEXT NOT NULL,
+    exchange TEXT DEFAULT 'NSE',
+    order_type TEXT NOT NULL,
+    transaction_type TEXT NOT NULL,
+    quantity INTEGER NOT NULL,
+    price REAL,
+    status TEXT NOT NULL,
+    kite_order_id TEXT,
+    fill_price REAL,
+    fill_quantity INTEGER,
+    strategy TEXT NOT NULL,
+    signal_data TEXT,
+    error_message TEXT,
+    placed_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    FOREIGN KEY (deployment_id) REFERENCES deployments(id)
+  );
+`);
+
 // ─── IST Helper ───
 
 export function istNow(): string {
@@ -456,6 +481,100 @@ export function getFundTransactions(deploymentId: number): any[] {
 
 export function getDeploymentChangelog(deploymentId: number): any[] {
   return sqlite.prepare("SELECT * FROM deployment_changelog WHERE deployment_id = ? ORDER BY id DESC").all(deploymentId);
+}
+
+// ─── Orders Log Helpers ───
+
+export function getOrdersLog(deploymentId: number, filters?: { status?: string; symbol?: string; limit?: number; offset?: number }): any[] {
+  let query = "SELECT * FROM orders_log WHERE deployment_id = ?";
+  const params: any[] = [deploymentId];
+
+  if (filters?.status) {
+    query += " AND status = ?";
+    params.push(filters.status);
+  }
+  if (filters?.symbol) {
+    query += " AND symbol = ?";
+    params.push(filters.symbol);
+  }
+  query += " ORDER BY id DESC";
+  if (filters?.limit) {
+    query += " LIMIT ?";
+    params.push(filters.limit);
+    if (filters?.offset) {
+      query += " OFFSET ?";
+      params.push(filters.offset);
+    }
+  }
+  return sqlite.prepare(query).all(...params);
+}
+
+export function insertOrder(order: {
+  deployment_id: number;
+  symbol: string;
+  exchange?: string;
+  order_type: string;
+  transaction_type: string;
+  quantity: number;
+  price?: number;
+  status: string;
+  kite_order_id?: string;
+  fill_price?: number;
+  fill_quantity?: number;
+  strategy: string;
+  signal_data?: string;
+  error_message?: string;
+}): number {
+  const now = istNow();
+  const result = sqlite.prepare(`
+    INSERT INTO orders_log (deployment_id, symbol, exchange, order_type, transaction_type, quantity, price, status, kite_order_id, fill_price, fill_quantity, strategy, signal_data, error_message, placed_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    order.deployment_id, order.symbol, order.exchange || "NSE",
+    order.order_type, order.transaction_type, order.quantity,
+    order.price ?? null, order.status,
+    order.kite_order_id ?? null, order.fill_price ?? null,
+    order.fill_quantity ?? null, order.strategy,
+    order.signal_data ?? null, order.error_message ?? null,
+    now, now
+  );
+  return Number(result.lastInsertRowid);
+}
+
+export function updateOrderStatus(orderId: number, updates: {
+  status: string;
+  fill_price?: number;
+  fill_quantity?: number;
+  kite_order_id?: string;
+  error_message?: string;
+}): void {
+  const now = istNow();
+  const setClauses = ["status = ?", "updated_at = ?"];
+  const params: any[] = [updates.status, now];
+
+  if (updates.fill_price !== undefined) {
+    setClauses.push("fill_price = ?");
+    params.push(updates.fill_price);
+  }
+  if (updates.fill_quantity !== undefined) {
+    setClauses.push("fill_quantity = ?");
+    params.push(updates.fill_quantity);
+  }
+  if (updates.kite_order_id !== undefined) {
+    setClauses.push("kite_order_id = ?");
+    params.push(updates.kite_order_id);
+  }
+  if (updates.error_message !== undefined) {
+    setClauses.push("error_message = ?");
+    params.push(updates.error_message);
+  }
+
+  params.push(orderId);
+  sqlite.prepare(`UPDATE orders_log SET ${setClauses.join(", ")} WHERE id = ?`).run(...params);
+}
+
+export function getOrder(orderId: number): any {
+  return sqlite.prepare("SELECT * FROM orders_log WHERE id = ?").get(orderId);
 }
 
 // Log app startup

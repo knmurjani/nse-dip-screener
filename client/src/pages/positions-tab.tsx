@@ -20,7 +20,7 @@ import {
   Rocket, Briefcase, History, Plus, Minus, Settings, Pause, Play, Square,
   TrendingUp, TrendingDown, ArrowUpDown, ArrowUp, ArrowDown,
   Wallet, BarChart3, AlertTriangle, DollarSign, Percent,
-  FileText, ChevronDown,
+  FileText, ChevronDown, ClipboardList,
 } from "lucide-react";
 import { useStrategy } from "@/lib/strategy-context";
 import { useToast } from "@/hooks/use-toast";
@@ -56,6 +56,7 @@ interface Deployment {
   snapshots?: DeploymentSnapshot[];
   funds?: FundTransaction[];
   changelog?: ChangelogEntry[];
+  orders?: OrderLog[];
 }
 
 interface DeploymentPosition {
@@ -138,6 +139,26 @@ interface ChangelogEntry {
   old_value: string | null;
   new_value: string | null;
   note: string | null;
+}
+
+interface OrderLog {
+  id: number;
+  deployment_id: number;
+  symbol: string;
+  exchange: string;
+  order_type: string;
+  transaction_type: string;
+  quantity: number;
+  price: number | null;
+  status: string;
+  kite_order_id: string | null;
+  fill_price: number | null;
+  fill_quantity: number | null;
+  strategy: string;
+  signal_data: string | null;
+  error_message: string | null;
+  placed_at: string;
+  updated_at: string;
 }
 
 // ─── Helpers ───
@@ -606,6 +627,7 @@ function DeploymentDashboard({ deployment, onSettings, onAddFunds, onWithdraw, s
   const snapshots = d.snapshots || [];
   const funds = d.funds || [];
   const changelog = d.changelog || [];
+  const orders = d.orders || [];
 
   const winRate = d.total_trades > 0 ? ((d.winning_trades / d.total_trades) * 100) : 0;
   const investedValue = positions.reduce((sum, p) => sum + (p.current_value || p.entry_value), 0);
@@ -757,7 +779,7 @@ function DeploymentDashboard({ deployment, onSettings, onAddFunds, onWithdraw, s
 
       {/* Sub-tabs */}
       <Tabs value={subTab} onValueChange={setSubTab} data-testid="deployment-tabs">
-        <TabsList className="grid w-full max-w-lg grid-cols-4 h-9">
+        <TabsList className="grid w-full max-w-2xl grid-cols-5 h-9">
           <TabsTrigger value="positions" className="text-xs" data-testid="tab-positions">
             <Briefcase className="w-3.5 h-3.5 mr-1" />
             Open ({positions.length})
@@ -765,6 +787,10 @@ function DeploymentDashboard({ deployment, onSettings, onAddFunds, onWithdraw, s
           <TabsTrigger value="trades" className="text-xs" data-testid="tab-trades">
             <History className="w-3.5 h-3.5 mr-1" />
             Closed ({trades.length})
+          </TabsTrigger>
+          <TabsTrigger value="orders" className="text-xs" data-testid="tab-orders">
+            <ClipboardList className="w-3.5 h-3.5 mr-1" />
+            Orders ({orders.length})
           </TabsTrigger>
           <TabsTrigger value="funds" className="text-xs" data-testid="tab-funds">
             <Wallet className="w-3.5 h-3.5 mr-1" />
@@ -784,6 +810,11 @@ function DeploymentDashboard({ deployment, onSettings, onAddFunds, onWithdraw, s
         {/* Closed Trades */}
         <TabsContent value="trades" className="mt-3">
           <TradesTable trades={trades} />
+        </TabsContent>
+
+        {/* Orders Log */}
+        <TabsContent value="orders" className="mt-3">
+          <OrdersTable orders={orders} />
         </TabsContent>
 
         {/* Fund Statement */}
@@ -1008,6 +1039,107 @@ function TradesTable({ trades }: { trades: DeploymentTrade[] }) {
                         </TooltipContent>
                       )}
                     </Tooltip>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+// ─── Orders Table ───
+
+function orderStatusBadge(status: string): { cls: string } {
+  switch (status) {
+    case "COMPLETE": return { cls: "text-[#22c55e] border-green-500/20 bg-green-500/10" };
+    case "PLACED":
+    case "OPEN": return { cls: "text-blue-400 border-blue-500/20 bg-blue-500/10" };
+    case "CANCELLED": return { cls: "text-yellow-500 border-yellow-500/20 bg-yellow-500/10" };
+    case "REJECTED":
+    case "FAILED": return { cls: "text-loss border-red-500/20 bg-red-500/10" };
+    default: return { cls: "text-muted-foreground" };
+  }
+}
+
+function OrdersTable({ orders }: { orders: OrderLog[] }) {
+  const [sortField, setSortField] = useState<string>("placed_at");
+  const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
+
+  const handleSort = (field: string) => {
+    if (sortField === field) setSortDir(sortDir === "asc" ? "desc" : "asc");
+    else { setSortField(field); setSortDir("desc"); }
+  };
+
+  const sorted = [...orders].sort((a, b) => {
+    const mul = sortDir === "asc" ? 1 : -1;
+    if (sortField === "symbol") return mul * a.symbol.localeCompare(b.symbol);
+    if (sortField === "placed_at") return mul * a.placed_at.localeCompare(b.placed_at);
+    if (sortField === "status") return mul * a.status.localeCompare(b.status);
+    if (sortField === "transaction_type") return mul * a.transaction_type.localeCompare(b.transaction_type);
+    return mul * (((a as any)[sortField] ?? 0) - ((b as any)[sortField] ?? 0));
+  });
+
+  if (orders.length === 0) {
+    return (
+      <Card>
+        <CardContent className="p-8 text-center">
+          <ClipboardList className="w-8 h-8 mx-auto text-muted-foreground/30 mb-3" />
+          <p className="text-sm text-muted-foreground">No orders placed yet</p>
+        </CardContent>
+      </Card>
+    );
+  }
+
+  return (
+    <Card>
+      <CardContent className="px-0 pb-0 pt-0">
+        <div className="overflow-x-auto max-h-[500px] overflow-y-auto">
+          <Table>
+            <TableHeader className="sticky top-0 bg-card z-10">
+              <TableRow className="hover:bg-transparent">
+                <SortHead label="Time" field="placed_at" current={sortField} dir={sortDir} onClick={() => handleSort("placed_at")} />
+                <SortHead label="Symbol" field="symbol" current={sortField} dir={sortDir} onClick={() => handleSort("symbol")} />
+                <SortHead label="Side" field="transaction_type" current={sortField} dir={sortDir} onClick={() => handleSort("transaction_type")} />
+                <TableHead className="text-[11px]">Type</TableHead>
+                <TableHead className="text-[11px] text-right">Qty</TableHead>
+                <TableHead className="text-[11px] text-right">Price</TableHead>
+                <TableHead className="text-[11px] text-right">Fill Price</TableHead>
+                <SortHead label="Status" field="status" current={sortField} dir={sortDir} onClick={() => handleSort("status")} align="right" />
+                <TableHead className="text-[11px] text-right">Kite ID</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {sorted.map((o, i) => (
+                <TableRow key={o.id} data-testid={`row-order-${i}`}>
+                  <TableCell className="text-xs tabular-nums py-2 pl-4">
+                    {o.placed_at.replace(" IST", "")}
+                  </TableCell>
+                  <TableCell className="py-2">
+                    <span className="text-xs font-semibold">{o.symbol}</span>
+                  </TableCell>
+                  <TableCell className="py-2">
+                    <Badge variant="outline" className={`text-[10px] ${o.transaction_type === "BUY" ? "text-[#22c55e] border-green-500/20 bg-green-500/10" : "text-loss border-red-500/20 bg-red-500/10"}`}>
+                      {o.transaction_type}
+                    </Badge>
+                  </TableCell>
+                  <TableCell className="text-xs py-2">{o.order_type}</TableCell>
+                  <TableCell className="text-right text-xs tabular-nums py-2">{o.quantity}</TableCell>
+                  <TableCell className="text-right text-xs tabular-nums py-2">
+                    {o.price != null ? fmtPrice(o.price) : "MKT"}
+                  </TableCell>
+                  <TableCell className="text-right text-xs tabular-nums py-2">
+                    {o.fill_price != null ? fmtPrice(o.fill_price) : "—"}
+                  </TableCell>
+                  <TableCell className="text-right py-2">
+                    <Badge variant="outline" className={`text-[10px] ${orderStatusBadge(o.status).cls}`}>
+                      {o.status}
+                    </Badge>
+                  </TableCell>
+                  <TableCell className="text-right text-xs tabular-nums text-muted-foreground py-2 pr-4">
+                    {o.kite_order_id || "—"}
                   </TableCell>
                 </TableRow>
               ))}
