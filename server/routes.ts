@@ -4,7 +4,6 @@ import { runScreener, clearCache } from "./screener";
 import { startScheduler } from "./scheduler";
 import { getLoginURL, generateSession, setAccessToken, isAuthenticated, getKite, getKiteStatus, markKiteFailed } from "./kite";
 import { getBacktestResult, clearBacktestCache, runBacktest } from "./backtest";
-import { runBollingerBacktest } from "./backtest-bollinger";
 import { runBollingerMRBacktest } from "./backtest-bollinger-mr";
 import Database from "better-sqlite3";
 import { logSystem, getSystemLogs, getChangelog, DB_PATH, istNow, getDeployments, getDeployment, getActiveDeployments, getDeploymentPositions, getDeploymentTrades, getDeploymentSnapshots, getFundTransactions, getDeploymentChangelog } from "./storage";
@@ -176,7 +175,7 @@ export async function registerRoutes(
 
       const bollingerConditions = { watchlistCondition, entryCondition, exitTarget, exitStopBand };
 
-      if (strategy === "bollinger_mr") {
+      if (strategy === "bollinger_bounce" || strategy === "bollinger_mr") {
         result = await runBollingerMRBacktest({
           ...commonParams,
           fromDate: fromDate || undefined,
@@ -185,21 +184,8 @@ export async function registerRoutes(
           entryBandSigma: entryBandSigma || 2,
           targetBandSigma: targetBandSigma || 2,
           stopLossSigma: stopLossSigma || 2,
-          maxHoldDays: maxHoldDays || 0,
+          maxHoldDays: maxHoldDays !== undefined && maxHoldDays !== "" ? Number(maxHoldDays) : 0,
           allowParallelPositions: allowParallelPositions || false,
-          absoluteStopPct: absoluteStopPct || undefined,
-          trailingStopPct: trailingStopPct || undefined,
-          ...bollingerConditions,
-        });
-      } else if (strategy === "bollinger_bounce") {
-        result = await runBollingerBacktest({
-          ...commonParams,
-          fromDate: fromDate || undefined,
-          toDate: toDate || undefined,
-          maPeriod: maPeriod || 20,
-          entryBandSigma: entryBandSigma || 2,
-          stopLossSigma: stopLossSigma || 3,
-          maxHoldDays: maxHoldDays || 10,
           absoluteStopPct: absoluteStopPct || undefined,
           trailingStopPct: trailingStopPct || undefined,
           ...bollingerConditions,

@@ -153,7 +153,7 @@ export default function Dashboard() {
   const { data: bollingerData, isLoading: bollingerLoading } = useQuery<BollingerResult>({
     queryKey: ["/api/bollinger/screener"],
     staleTime: 5 * 60 * 1000,
-    enabled: strategyId === "bollinger_bounce" || strategyId === "bollinger_mr",
+    enabled: strategyId === "bollinger_bounce",
   });
 
   const handleRefresh = async () => {
@@ -258,7 +258,6 @@ export default function Dashboard() {
               <SelectContent>
                 <SelectItem value="atr_dip_buyer" className="text-xs">ATR Dip Buyer</SelectItem>
                 <SelectItem value="bollinger_bounce" className="text-xs">Bollinger Bounce</SelectItem>
-                <SelectItem value="bollinger_mr" className="text-xs">Bollinger −2σ to +2σ</SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -303,7 +302,7 @@ export default function Dashboard() {
         <KiteStatusBanner />
 
         {/* KPI Cards — strategy-aware */}
-        {(strategyId === "bollinger_bounce" || strategyId === "bollinger_mr") ? (
+        {strategyId === "bollinger_bounce" ? (
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
             <KPICard
               label="Universe"
@@ -422,7 +421,7 @@ export default function Dashboard() {
 
           {/* SIGNALS TAB */}
           <TabsContent value="signals" className="mt-4">
-            {(strategyId === "bollinger_bounce" || strategyId === "bollinger_mr") ? (
+            {strategyId === "bollinger_bounce" ? (
               <BollingerSignals />
             ) : (
             <Card>
@@ -628,7 +627,7 @@ export default function Dashboard() {
 
           {/* UNIVERSE TAB — strategy-aware */}
           <TabsContent value="universe" className="mt-4">
-            {(strategyId === "bollinger_bounce" || strategyId === "bollinger_mr") ? (
+            {strategyId === "bollinger_bounce" ? (
               <BollingerUniverse />
             ) : (
             <Card>
@@ -852,46 +851,26 @@ const STRATEGY_RULES: Record<string, {
   },
   bollinger_bounce: {
     entry: [
-      { title: "Bollinger Bands", desc: "Calculate 20-day moving average (mean) and standard deviation" },
-      { title: "Watchlist", desc: "Stock drops below \u22122\u03c3 band (lower Bollinger Band)" },
-      { title: "Entry Signal", desc: "Stock crosses back above \u22122\u03c3 on the way up \u2014 buy at market close" },
-      { title: "Position Sizing", desc: "Dynamic: current portfolio value / max positions (with compounding)" },
-      { title: "Stock Selection", desc: "Rank by distance below mean \u2014 deeper dip = higher conviction" },
-    ],
-    exit: [
-      { title: "Mean Target", desc: "Price reaches the 20-day moving average (mean) \u2014 mean reversion complete" },
-      { title: "\u22123\u03c3 Stop Loss", desc: "Price drops to \u22123\u03c3 band \u2014 extreme deviation, cut loss" },
-      { title: "Time Exit", desc: "10 trading days maximum hold (configurable)" },
-    ],
-    exitNote: "Exit at the mean is the primary target. The \u22123\u03c3 stop protects against further collapse. Time exit prevents capital from being stuck.",
-    indicators: [
-      { term: "20-DMA", def: "20-day moving average \u2014 the \u2018mean\u2019 in mean-reversion. This is the profit target." },
-      { term: "Standard Deviation (\u03c3)", def: "Measures price dispersion around the mean. Wider bands = higher volatility." },
-      { term: "\u22122\u03c3 Band", def: "Lower Bollinger Band. Watchlist trigger when price drops below this level." },
-      { term: "\u22123\u03c3 Band", def: "Extreme lower band. Stop loss level \u2014 price rarely stays below this." },
-      { term: "Setup Score", def: "Distance below mean as %. Deeper dip = higher conviction for bounce." },
-    ],
-  },
-  bollinger_mr: {
-    entry: [
-      { title: "Bollinger Bands", desc: "Calculate 20-day moving average (mean) and standard deviation" },
-      { title: "Watchlist", desc: "Stock drops below \u22122\u03c3 band (lower Bollinger Band)" },
-      { title: "Entry Signal", desc: "Stock crosses back above the 20-DMA (mean) \u2014 confirmed recovery" },
-      { title: "Entry Price", desc: "The 20-DMA value at the crossover point (not the close price)" },
-      { title: "Position Sizing", desc: "Fixed: Capital / Max Positions (no compounding \u2014 matches original Python strategy)" },
+      { title: "Bollinger Bands", desc: "Calculate N-day moving average and standard deviation" },
+      { title: "Watchlist", desc: "Configurable: stock drops below selected band (−1σ, −2σ, −3σ, or mean)" },
+      { title: "Entry Signal", desc: "Configurable: stock crosses above selected level (−2σ, −1σ, mean, or +1σ)" },
+      { title: "Position Sizing", desc: "Fixed: Capital / Max Positions (no compounding)" },
       { title: "Parallel Trades", desc: "Configurable: same stock can have multiple open positions if enabled" },
     ],
     exit: [
-      { title: "+2\u03c3 Target", desc: "Close crosses above +2\u03c3 upper band \u2014 full mean reversion to the other side" },
-      { title: "\u22122\u03c3 Stop Loss", desc: "Close drops below \u22122\u03c3 lower band \u2014 cut loss" },
+      { title: "Profit Target", desc: "Configurable: reach mean, +1σ, +2σ, or +3σ" },
+      { title: "Band Stop", desc: "Configurable: drop below −2σ, −3σ, or −4σ" },
+      { title: "Absolute Stop", desc: "Optional: fixed % loss from entry price" },
+      { title: "Trailing Stop", desc: "Optional: fixed % drop from peak price" },
+      { title: "Time Exit", desc: "Optional: max trading days (leave blank for no limit)" },
     ],
-    exitNote: "No time exit by default \u2014 trades can be held until the +2\u03c3 target or \u22122\u03c3 stop is hit. Time exit can be enabled from the backtest console.",
+    exitNote: "All conditions are configurable from the backtest console. Select your watchlist trigger, entry crossover, profit target band, and stop loss band. Leave optional fields blank to disable them.",
     indicators: [
-      { term: "20-DMA", def: "20-day moving average. Entry trigger when price crosses above this level after being on the watchlist." },
-      { term: "Standard Deviation (\u03c3)", def: "Measures price dispersion. Used to calculate the \u00b12\u03c3 bands." },
-      { term: "\u22122\u03c3 Band", def: "Lower Bollinger Band. Watchlist trigger AND stop loss level." },
-      { term: "+2\u03c3 Band", def: "Upper Bollinger Band. Profit target \u2014 exit when price reaches this level." },
-      { term: "No Compounding", def: "Position size is fixed at Capital / Max Positions regardless of portfolio performance." },
+      { term: "N-DMA", def: "N-day moving average (default 20). The \u2018mean\u2019 line. Configurable period." },
+      { term: "Standard Deviation (σ)", def: "Measures price dispersion around the mean. Used to calculate all band levels." },
+      { term: "Lower Bands (−Nσ)", def: "Below the mean. Used for watchlist trigger and stop loss." },
+      { term: "Upper Bands (+Nσ)", def: "Above the mean. Used for profit target exit." },
+      { term: "Setup Score", def: "Distance to target as %. Higher = more potential upside." },
     ],
   },
 };

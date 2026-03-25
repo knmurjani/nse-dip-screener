@@ -132,7 +132,7 @@ export default function BacktestTab() {
   const [formToDate, setFormToDate] = useState(() => new Date().toISOString().slice(0, 10));
   const [formCapital, setFormCapital] = useState("1000000");
   const [formMaxPositions, setFormMaxPositions] = useState("10");
-  const [formMaxHoldDays, setFormMaxHoldDays] = useState("10");
+  const [formMaxHoldDays, setFormMaxHoldDays] = useState("");
   const [formAbsoluteStopPct, setFormAbsoluteStopPct] = useState("");
   const [formTrailingStopPct, setFormTrailingStopPct] = useState("");
   // Form state — Bollinger-specific
@@ -144,17 +144,11 @@ export default function BacktestTab() {
   const [formAllowParallel, setFormAllowParallel] = useState(false);
   // Form state — Configurable conditions (dropdowns)
   const [formWatchlistCond, setFormWatchlistCond] = useState("below_-2s");
-  const [formEntryCond, setFormEntryCond] = useState(
-    strategyId === "bollinger_mr" ? "cross_above_mean" : "cross_above_-2s"
-  );
-  const [formExitTarget, setFormExitTarget] = useState(
-    strategyId === "bollinger_mr" ? "reach_+2s" : "reach_mean"
-  );
-  const [formExitStopBand, setFormExitStopBand] = useState(
-    strategyId === "bollinger_mr" ? "below_-2s" : "below_-3s"
-  );
+  const [formEntryCond, setFormEntryCond] = useState("cross_above_-2s");
+  const [formExitTarget, setFormExitTarget] = useState("reach_mean");
+  const [formExitStopBand, setFormExitStopBand] = useState("below_-3s");
 
-  const isBollinger = strategyId === "bollinger_bounce" || strategyId === "bollinger_mr";
+  const isBollinger = strategyId === "bollinger_bounce";
 
   // Reset selection when strategy changes so we don't show stale data from another strategy
   useEffect(() => {
@@ -202,16 +196,14 @@ export default function BacktestTab() {
         fromDate: formFromDate,
         toDate: formToDate,
         strategyId,
-        maxHoldDays: Number(formMaxHoldDays),
+        maxHoldDays: formMaxHoldDays ? Number(formMaxHoldDays) : 0,
         absoluteStopPct: formAbsoluteStopPct ? Number(formAbsoluteStopPct) : undefined,
         trailingStopPct: formTrailingStopPct ? Number(formTrailingStopPct) : undefined,
       };
-      if (strategyId === "bollinger_bounce" || strategyId === "bollinger_mr") {
+      if (isBollinger) {
         body.maPeriod = Number(formMaPeriod);
         body.entryBandSigma = Number(formEntryBandSigma);
         body.stopLossSigma = Number(formStopLossSigma);
-      }
-      if (strategyId === "bollinger_mr") {
         body.targetBandSigma = Number(formTargetBandSigma);
         body.allowParallelPositions = formAllowParallel;
       }
@@ -368,7 +360,7 @@ export default function BacktestTab() {
                 <label className="text-[10px] text-muted-foreground block mb-1">Max Hold Days</label>
                 <Input
                   type="number" value={formMaxHoldDays} onChange={e => setFormMaxHoldDays(e.target.value)}
-                  className="h-8 text-xs tabular-nums"
+                  placeholder="No limit" className="h-8 text-xs tabular-nums"
                   data-testid="input-max-hold-days"
                 />
               </div>
@@ -458,7 +450,7 @@ export default function BacktestTab() {
                     </SelectContent>
                   </Select>
                 </div>
-                {strategyId === "bollinger_mr" && (
+                {strategyId === "bollinger_bounce" && (
                   <div className="flex items-center pt-4">
                     <label className="flex items-center gap-2 cursor-pointer">
                       <input
@@ -549,7 +541,7 @@ export default function BacktestTab() {
                         </TableCell>
                         <TableCell className="py-2">
                           <Badge variant="outline" className="text-[10px]" data-testid={`strategy-badge-${i}`}>
-                            {r.strategy_id === "bollinger_mr" ? "−2σ→+2σ" : r.strategy_id === "bollinger_bounce" ? "Bollinger" : "ATR Dip"}
+                            {r.strategy_id === "bollinger_bounce" || r.strategy_id === "bollinger_mr" ? "Bollinger" : "ATR Dip"}
                           </Badge>
                         </TableCell>
                         <TableCell className="text-[11px] tabular-nums text-muted-foreground py-2">
@@ -870,7 +862,7 @@ export default function BacktestTab() {
                       <SortHead label="P&L %" field="pnlPct" current={sortField} dir={sortDir} onClick={() => handleSort("pnlPct")} align="right" />
                       <SortHead label="Days" field="daysHeld" current={sortField} dir={sortDir} onClick={() => handleSort("daysHeld")} align="right" />
                       <SortHead label="Exit Reason" field="exitReason" current={sortField} dir={sortDir} onClick={() => handleSort("exitReason")} align="right" />
-                      {(strategyId === "bollinger_bounce" || strategyId === "bollinger_mr") && (
+                      {strategyId === "bollinger_bounce" && (
                         <TableHead className="text-[11px] text-center w-10">Chart</TableHead>
                       )}
                     </TableRow>
@@ -935,7 +927,7 @@ export default function BacktestTab() {
                             </p>
                           )}
                         </TableCell>
-                        {(strategyId === "bollinger_bounce" || strategyId === "bollinger_mr") && (
+                        {strategyId === "bollinger_bounce" && (
                           <TableCell className="text-center py-2">
                             <button
                               className={`p-1 rounded hover:bg-muted/50 transition-colors ${
@@ -951,7 +943,7 @@ export default function BacktestTab() {
                         )}
                       </TableRow>
                       {/* Expanded Bollinger chart row */}
-                      {chartRow === i && (strategyId === "bollinger_bounce" || strategyId === "bollinger_mr") && (
+                      {chartRow === i && strategyId === "bollinger_bounce" && (
                         <TableRow key={`chart-${t.id ?? i}`} data-testid={`chart-row-${i}`}>
                           <TableCell colSpan={11} className="p-0 bg-muted/10">
                             <BollingerTradeChart
@@ -1043,6 +1035,7 @@ function SortHead({ label, field, current, dir, onClick, align = "left" }: {
 
 function StrategyRulesCard({ strategyId, paramsJson }: { strategyId: string; paramsJson?: string }) {
   const [open, setOpen] = useState(false);
+  const isBollingerStrat = strategyId === "bollinger_bounce" || strategyId === "bollinger_mr";
 
   // Try to use rules saved with this specific backtest run
   let savedEntry: string[] | null = null;
@@ -1058,12 +1051,9 @@ function StrategyRulesCard({ strategyId, paramsJson }: { strategyId: string; par
   }
 
   // Fallback to generic strategy rules if no saved rules
-  const defaultRules = strategyId === "bollinger_mr" ? {
-    entry: ["20-day MA + StdDev bands", "Watchlist: close drops below \u22122\u03c3", "Entry: close crosses above 20-DMA (mean)", "Entry price = 20-DMA at crossover", "Fixed sizing (no compounding)"],
-    exit: [{ name: "+2\u03c3 Target", desc: "Close > +2\u03c3 band" }, { name: "\u22122\u03c3 Stop", desc: "Close < \u22122\u03c3 band" }],
-  } : strategyId === "bollinger_bounce" ? {
-    entry: ["20-day MA + StdDev bands", "Watchlist below \u22122\u03c3", "Buy on cross above \u22122\u03c3", "Rank by distance below mean"],
-    exit: [{ name: "Mean Target", desc: "Price reaches 20-DMA" }, { name: "\u22123\u03c3 Stop", desc: "Price drops to \u22123\u03c3" }, { name: "Time Exit", desc: "10 days max" }],
+  const defaultRules = isBollingerStrat ? {
+    entry: ["N-day MA + StdDev bands", "Watchlist: configurable band trigger", "Entry: configurable crossover level", "Fixed sizing (no compounding)"],
+    exit: [{ name: "Profit Target", desc: "Configurable band target" }, { name: "Band Stop", desc: "Configurable band stop" }],
   } : {
     entry: ["Above 200-DMA", "Drop > 3%", "ATR% > 3%", "Limit buy at Close \u2212 0.9\u00d7ATR", "Rank by ATR/Close"],
     exit: [{ name: "Profit Target", desc: "Entry + 0.5\u00d7ATR(5)" }, { name: "Price Action", desc: "Close > prev high" }, { name: "Time Exit", desc: "10 days max" }],
