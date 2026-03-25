@@ -47,6 +47,8 @@ export async function generateSession(requestToken: string): Promise<{
   accessToken = session.access_token;
   tokenExpiry = new Date().toISOString().split("T")[0];
   kite.setAccessToken(accessToken!);
+  kiteApiWorking = true; // Reset on new session
+  lastKiteError = "";
   console.log(`[Kite] Authenticated as ${session.user_name || session.user_id} — token valid for today`);
   return {
     access_token: session.access_token,
