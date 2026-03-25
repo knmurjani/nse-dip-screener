@@ -2,6 +2,14 @@ import { QueryClient, QueryFunction } from "@tanstack/react-query";
 
 const API_BASE = "__PORT_5000__".startsWith("__") ? "" : "__PORT_5000__";
 
+// Read API key from meta tag injected by server, or from window variable.
+// Falls back to empty string (no auth header sent) for dev mode.
+function getApiKey(): string {
+  const meta = document.querySelector('meta[name="api-key"]');
+  if (meta) return meta.getAttribute("content") || "";
+  return (window as any).__API_KEY__ || "";
+}
+
 async function throwIfResNotOk(res: Response) {
   if (!res.ok) {
     const text = (await res.text()) || res.statusText;
@@ -14,9 +22,18 @@ export async function apiRequest(
   url: string,
   data?: unknown | undefined,
 ): Promise<Response> {
+  const headers: Record<string, string> = {};
+  if (data) headers["Content-Type"] = "application/json";
+
+  // Include X-API-Key for mutating requests (POST/PUT/DELETE)
+  const apiKey = getApiKey();
+  if (apiKey && method !== "GET") {
+    headers["X-API-Key"] = apiKey;
+  }
+
   const res = await fetch(`${API_BASE}${url}`, {
     method,
-    headers: data ? { "Content-Type": "application/json" } : {},
+    headers,
     body: data ? JSON.stringify(data) : undefined,
   });
 

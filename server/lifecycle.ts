@@ -121,6 +121,64 @@ async function getNiftyPrice(): Promise<number> {
   return 0;
 }
 
+// ─── Bollinger Bands Computation ───
+
+async function getBollingerBands(
+  symbol: string,
+  maPeriod: number = 20
+): Promise<{ mean: number; upper2: number; lower2: number; upper3: number; lower3: number } | null> {
+  try {
+    const clean = symbol.replace(".NS", "");
+    const endDate = new Date();
+    const startDate = new Date();
+    startDate.setDate(startDate.getDate() - 60); // fetch 60 days to ensure we have maPeriod trading days
+
+    let data: any[] = [];
+
+    // Try Kite historical data first
+    if (isAuthenticated()) {
+      try {
+        const kite = getKite();
+        const instruments = await kite.getInstruments("NSE");
+        const inst = instruments.find((i: any) => i.tradingsymbol === clean);
+        if (inst) {
+          data = await kite.getHistoricalData(inst.instrument_token, "day", startDate, endDate);
+        }
+      } catch { /* fall through to Yahoo */ }
+    }
+
+    // Fallback to Yahoo Finance
+    if (data.length < maPeriod) {
+      try {
+        const result = await yahooFinance.chart(clean + ".NS", {
+          period1: startDate, period2: endDate, interval: "1d"
+        });
+        data = result.quotes || [];
+      } catch { return null; }
+    }
+
+    if (data.length < maPeriod) return null;
+
+    // Get last maPeriod closing prices
+    const closes = data.slice(-maPeriod).map((d: any) => d.close || d.Close).filter((v: any) => typeof v === "number" && !isNaN(v));
+    if (closes.length < maPeriod) return null;
+
+    const mean = closes.reduce((s: number, v: number) => s + v, 0) / closes.length;
+    const variance = closes.reduce((s: number, v: number) => s + (v - mean) ** 2, 0) / closes.length;
+    const stddev = Math.sqrt(variance);
+
+    return {
+      mean,
+      upper2: mean + 2 * stddev,
+      lower2: mean - 2 * stddev,
+      upper3: mean + 3 * stddev,
+      lower3: mean - 3 * stddev,
+    };
+  } catch {
+    return null;
+  }
+}
+
 // ─── Pre-Market Check (9:15 AM IST) ───
 
 export async function runPreMarketCheck(deploymentId: number): Promise<void> {
@@ -238,18 +296,32 @@ export async function runDeploymentLifecycle(deploymentId: number): Promise<Life
             exitDetail = `Held ${daysHeld} days ≥ ${deployment.max_hold_days} day limit`;
           }
         } else {
-          // Bollinger strategies — mean target
-          // Simple exit: check if price crossed back to mean/target
-          if (deployment.target_band_sigma && pos.setup_score) {
-            // Use a simple price check against entry * (1 + target %)
-            const targetPct = deployment.target_band_sigma * 2; // approximate
-            if (quote.price >= pos.entry_price * (1 + targetPct / 100)) {
+          // Bollinger strategies — check actual band levels
+          const bands = await getBollingerBands(pos.symbol, deployment.ma_period || 20);
+          if (bands) {
+            // σ = (upper2 - mean) / 2, so target = mean + target_band_sigma * σ
+            const oneSigma = (bands.upper2 - bands.mean) / 2;
+            const targetSigma = deployment.target_band_sigma ?? 0; // 0 = mean, 2 = upper 2σ
+            const targetPrice = bands.mean + targetSigma * oneSigma;
+
+            if (quote.price >= targetPrice) {
               exitPrice = quote.price;
               exitReason = "sigma_target";
-              exitDetail = `Price ₹${quote.price.toFixed(2)} reached target`;
+              exitDetail = `Price ₹${quote.price.toFixed(2)} ≥ Target (${targetSigma > 0 ? `+${targetSigma}σ` : "Mean"} = ₹${targetPrice.toFixed(2)})`;
+            }
+
+            // Stop loss: price drops below stop sigma band
+            if (!exitReason && deployment.stop_loss_sigma) {
+              const stopPrice = bands.mean - deployment.stop_loss_sigma * oneSigma;
+              if (quote.low <= stopPrice) {
+                exitPrice = stopPrice;
+                exitReason = "sigma_stop";
+                exitDetail = `Low ₹${quote.low.toFixed(2)} ≤ Stop (−${deployment.stop_loss_sigma}σ = ₹${stopPrice.toFixed(2)})`;
+              }
             }
           }
-          // Time exit
+
+          // Time exit (fallback)
           if (!exitReason && deployment.max_hold_days > 0 && daysHeld >= deployment.max_hold_days) {
             exitPrice = quote.price;
             exitReason = `time_exit_${deployment.max_hold_days}_days`;
@@ -421,6 +493,11 @@ export async function runDeploymentLifecycle(deploymentId: number): Promise<Life
             Math.round(entryPrice * 100) / 100,
             signal.setupScore || null, dateStr
           );
+
+          // Deduct entry value from deployment capital (exit path already adds it back)
+          sqliteDb.prepare(
+            "UPDATE deployments SET current_capital = current_capital - ? WHERE id = ?"
+          ).run(Math.round(quantity * entryPrice), deploymentId);
 
           // Log order
           insertOrder({

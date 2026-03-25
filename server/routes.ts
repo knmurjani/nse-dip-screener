@@ -1,4 +1,4 @@
-import type { Express } from "express";
+import type { Express, Request, Response, NextFunction } from "express";
 import { createServer, type Server } from "http";
 import crypto from "crypto";
 import { runScreener, clearCache } from "./screener";
@@ -17,10 +17,37 @@ import { sendMorningBrief, sendDailyPnLSummary, sendTelegramMessage } from "./te
 import { startTelegramBot } from "./telegram-bot";
 import { istNow as getIstNow } from "./storage";
 
+// ─── API Authentication Middleware ───
+// Protects mutating endpoints (POST/PUT/DELETE) with a shared-secret API key.
+// Read API_AUTH_KEY from process.env; if not set, auth is skipped (dev mode).
+// Set API_AUTH_KEY as an environment variable in production (e.g. Railway).
+function apiAuth(req: Request, res: Response, next: NextFunction) {
+  const API_AUTH_KEY = process.env.API_AUTH_KEY;
+
+  // If no auth key configured, skip auth (development mode)
+  if (!API_AUTH_KEY) return next();
+
+  // Skip for non-mutating requests (GET/HEAD/OPTIONS)
+  if (["GET", "HEAD", "OPTIONS"].includes(req.method)) return next();
+
+  // Skip for public POST paths (OAuth callback & Zerodha server-to-server)
+  const publicPaths = ["/kite-redirect", "/kite-postback"];
+  if (publicPaths.some(p => req.path.startsWith(p))) return next();
+
+  // Check for auth key in header or query param
+  const provided = req.headers["x-api-key"] || req.query.apiKey;
+  if (provided === API_AUTH_KEY) return next();
+
+  res.status(401).json({ error: "Unauthorized — provide X-API-Key header" });
+}
+
 export async function registerRoutes(
   httpServer: Server,
   app: Express
 ): Promise<Server> {
+
+  // Apply API auth middleware to all routes
+  app.use(apiAuth);
 
   // ─── Kite Connect Auth ───
 
