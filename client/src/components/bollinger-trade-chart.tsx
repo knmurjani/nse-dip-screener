@@ -228,7 +228,12 @@ export default function BollingerTradeChart({ symbol, entryDate, exitDate, entry
               </span>
             </>
           )}
-
+          <span className="flex items-center gap-1">
+            <span className="text-[#22c55e] text-[9px]">▲</span> Entry
+          </span>
+          <span className="flex items-center gap-1">
+            <span style={{ color: exitColor }} className="text-[9px]">▼</span> Exit
+          </span>
         </div>
       </div>
       <ResponsiveContainer width="100%" height={280}>
