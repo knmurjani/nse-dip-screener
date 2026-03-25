@@ -6,7 +6,7 @@ import { getLoginURL, generateSession, setAccessToken, isAuthenticated, getKite,
 import { getBacktestResult, clearBacktestCache, runBacktest } from "./backtest";
 import { runBollingerMRBacktest } from "./backtest-bollinger-mr";
 import Database from "better-sqlite3";
-import { logSystem, getSystemLogs, getChangelog, DB_PATH, istNow, getDeployments, getDeployment, getActiveDeployments, getDeploymentPositions, getDeploymentTrades, getDeploymentSnapshots, getFundTransactions, getDeploymentChangelog, getOrdersLog, insertOrder, updateOrderStatus, getOrder } from "./storage";
+import { logSystem, getSystemLogs, getChangelog, DB_PATH, istNow, getDeployments, getDeployment, getActiveDeployments, getDeploymentPositions, getDeploymentTrades, getDeploymentSnapshots, getFundTransactions, getDeploymentChangelog, getOrdersLog, insertOrder, updateOrderStatus, getOrder, getOrderByKiteId } from "./storage";
 import { getFilterBreakdown, clearFilterBreakdownCache } from "./filter-breakdown";
 import { getPortfolioSummary, runDailyLifecycle } from "./live-portfolio";
 import { runBollingerScreener, clearBollingerCache } from "./screener-bollinger";
@@ -100,6 +100,148 @@ export async function registerRoutes(
       }
     } else {
       res.redirect("/#/");
+    }
+  });
+
+  // ─── Kite Postback (real-time order updates from Zerodha) ───
+
+  app.post("/kite-postback", async (req, res) => {
+    try {
+      const payload = req.body;
+      // Kite postback sends: order_id, status, tradingsymbol, filled_quantity, average_price, etc.
+      const kiteOrderId = payload?.order_id;
+      const kiteStatus = payload?.status; // COMPLETE, CANCELLED, REJECTED, etc.
+      const tradingsymbol = payload?.tradingsymbol;
+      const filledQty = payload?.filled_quantity || 0;
+      const averagePrice = payload?.average_price || 0;
+      const statusMessage = payload?.status_message || "";
+      const transactionType = payload?.transaction_type; // BUY or SELL
+
+      console.log(`[Postback] ${tradingsymbol} ${transactionType} — ${kiteStatus} | Kite ID: ${kiteOrderId} | Filled: ${filledQty} @ ₹${averagePrice}`);
+      logSystem("postback", "received", `${tradingsymbol} ${transactionType} ${kiteStatus} | Order: ${kiteOrderId} | Filled: ${filledQty} @ ₹${averagePrice}`);
+
+      if (!kiteOrderId) {
+        res.json({ ok: true, message: "No order_id, ignored" });
+        return;
+      }
+
+      // Find the matching order in our orders_log
+      const order = getOrderByKiteId(String(kiteOrderId));
+      if (!order) {
+        console.log(`[Postback] No matching order for Kite ID ${kiteOrderId} — may be external trade`);
+        logSystem("postback", "unmatched", `Kite ID ${kiteOrderId} not found in orders_log (${tradingsymbol} ${transactionType})`);
+        res.json({ ok: true, message: "Order not tracked" });
+        return;
+      }
+
+      // Map Kite status to our status
+      const statusMap: Record<string, string> = {
+        "COMPLETE": "COMPLETE",
+        "CANCELLED": "CANCELLED",
+        "REJECTED": "REJECTED",
+        "OPEN": "OPEN",
+        "TRIGGER PENDING": "OPEN",
+        "OPEN PENDING": "OPEN",
+        "VALIDATION PENDING": "OPEN",
+        "PUT ORDER REQ RECEIVED": "PLACED",
+      };
+      const mappedStatus = statusMap[kiteStatus] || kiteStatus;
+
+      // Update order status
+      updateOrderStatus(order.id, {
+        status: mappedStatus,
+        fill_price: averagePrice > 0 ? averagePrice : undefined,
+        fill_quantity: filledQty > 0 ? filledQty : undefined,
+        error_message: kiteStatus === "REJECTED" ? statusMessage : undefined,
+      });
+
+      // Send Telegram notification for terminal statuses
+      const { sendOrderUpdate } = await import("./telegram");
+      if (["COMPLETE", "CANCELLED", "REJECTED"].includes(mappedStatus)) {
+        try {
+          await sendOrderUpdate({
+            symbol: tradingsymbol,
+            orderType: order.order_type,
+            transactionType: transactionType || order.transaction_type,
+            price: order.price,
+            quantity: filledQty || order.quantity,
+            status: mappedStatus,
+            fillPrice: averagePrice > 0 ? averagePrice : undefined,
+            kiteOrderId: String(kiteOrderId),
+          });
+        } catch { /* Telegram failure should not break postback */ }
+      }
+
+      // If BUY order COMPLETE → create the position in deployment_positions
+      if (mappedStatus === "COMPLETE" && (transactionType === "BUY" || order.transaction_type === "BUY")) {
+        try {
+          const sqliteDb = new Database(DB_PATH);
+          const now = istNow();
+          const dateStr = now.split(" ")[0];
+          const entryPrice = averagePrice > 0 ? averagePrice : order.price;
+          const qty = filledQty > 0 ? filledQty : order.quantity;
+          const entryValue = Math.round(entryPrice * qty);
+
+          // Check if position already exists (avoid duplicates)
+          const existing = sqliteDb.prepare(
+            "SELECT id FROM deployment_positions WHERE deployment_id = ? AND symbol = ?"
+          ).get(order.deployment_id, tradingsymbol || order.symbol) as any;
+
+          if (!existing) {
+            sqliteDb.prepare(`
+              INSERT INTO deployment_positions (deployment_id, symbol, name, direction, signal_date, entry_date, entry_time, entry_price, quantity, entry_value, current_price, current_value, pnl, pnl_pct, trading_days_held, peak_price, setup_score, last_updated)
+              VALUES (?, ?, ?, 'LONG', ?, ?, ?, ?, ?, ?, ?, ?, 0, 0, 0, ?, ?, ?)
+            `).run(
+              order.deployment_id,
+              tradingsymbol || order.symbol,
+              tradingsymbol || order.symbol,
+              dateStr, dateStr, now,
+              Math.round(entryPrice * 100) / 100, qty, entryValue,
+              Math.round(entryPrice * 100) / 100, entryValue,
+              Math.round(entryPrice * 100) / 100,
+              null, dateStr
+            );
+
+            logSystem("postback", "position_created", `${tradingsymbol}: ${qty} shares @ ₹${entryPrice.toFixed(2)} — from Kite fill`);
+
+            // Send trade alert via Telegram
+            try {
+              const { sendTradeAlert } = await import("./telegram");
+              await sendTradeAlert("ENTRY", {
+                symbol: tradingsymbol || order.symbol,
+                price: entryPrice,
+                quantity: qty,
+                strategy: order.strategy,
+              });
+            } catch { /* Telegram failure OK */ }
+          }
+        } catch (err: any) {
+          console.error(`[Postback] Position creation error: ${err.message}`);
+          logSystem("postback", "position_error", `${tradingsymbol}: ${err.message}`);
+        }
+      }
+
+      // If SELL order COMPLETE → the lifecycle already handles trade recording,
+      // but log it for audit
+      if (mappedStatus === "COMPLETE" && (transactionType === "SELL" || order.transaction_type === "SELL")) {
+        logSystem("postback", "sell_confirmed", `${tradingsymbol}: SELL ${filledQty} @ ₹${averagePrice} confirmed by Kite`);
+      }
+
+      // If REJECTED → alert + log
+      if (mappedStatus === "REJECTED") {
+        logSystem("postback", "order_rejected", `${tradingsymbol} ${transactionType}: ${statusMessage}`);
+        try {
+          const { sendSystemAlert } = await import("./telegram");
+          await sendSystemAlert("Order Rejected", `${tradingsymbol} ${transactionType} rejected: ${statusMessage}`);
+        } catch { /* Telegram failure OK */ }
+      }
+
+      res.json({ ok: true, message: `Processed: ${tradingsymbol} ${mappedStatus}` });
+    } catch (error: any) {
+      console.error(`[Postback] Error: ${error.message}`);
+      logSystem("postback", "error", error.message);
+      // Always return 200 to Kite so it doesn't retry endlessly
+      res.json({ ok: false, error: error.message });
     }
   });
 

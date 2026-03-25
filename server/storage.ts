@@ -577,5 +577,9 @@ export function getOrder(orderId: number): any {
   return sqlite.prepare("SELECT * FROM orders_log WHERE id = ?").get(orderId);
 }
 
+export function getOrderByKiteId(kiteOrderId: string): any {
+  return sqlite.prepare("SELECT * FROM orders_log WHERE kite_order_id = ? ORDER BY id DESC LIMIT 1").get(kiteOrderId);
+}
+
 // Log app startup
 logSystem("system", "server_started", `App started at ${new Date().toISOString()}`);
