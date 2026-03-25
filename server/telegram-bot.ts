@@ -4,7 +4,7 @@
  * Only responds to the authorized chat ID.
  */
 
-import { getKiteStatus, getLoginURL, isAuthenticated, getKite } from "./kite";
+import { getKiteStatus, getLoginURL, isAuthenticated, getKite, generateSession } from "./kite";
 import { sendTelegramMessage } from "./telegram";
 import { istNow, getActiveDeployments, getDeploymentPositions, getDeploymentTrades, getDeploymentSnapshots } from "./storage";
 
@@ -153,7 +153,35 @@ function handleHelp(): string {
     "/positions — View open positions",
     "/pnl — Today's P&amp;L summary",
     "/help — Show this help message",
+    "",
+    "💡 You can also paste a Kite <b>request_token</b> directly here to connect.",
   ].join("\n");
+}
+
+// ─── Pasted Request Token Handler ───
+
+async function handlePastedToken(token: string): Promise<string> {
+  try {
+    const session = await generateSession(token);
+    const time = istNow();
+    return [
+      "✅ <b>Kite Connected</b>",
+      "",
+      `User: ${escapeHtml(session.user_name)}`,
+      `Time: ${time}`,
+      "Token valid for today's trading session.",
+    ].join("\n");
+  } catch (error: any) {
+    const errMsg = error.message || "Unknown error";
+    console.error(`[TelegramBot] Token auth failed: ${errMsg}`);
+    return [
+      "❌ <b>Auth Failed</b>",
+      "",
+      `Error: ${escapeHtml(errMsg)}`,
+      "",
+      "Try /login for a fresh link.",
+    ].join("\n");
+  }
 }
 
 // ─── Polling Loop ───
@@ -226,7 +254,13 @@ async function pollUpdates(): Promise<void> {
             reply = handleHelp();
             break;
           default:
-            reply = "Use /help to see available commands.";
+            // Check if it looks like a pasted request_token (alphanumeric, 10+ chars, no spaces)
+            const rawText = update.message!.text!.trim();
+            if (/^[a-zA-Z0-9]{10,}$/.test(rawText)) {
+              reply = await handlePastedToken(rawText);
+            } else {
+              reply = "Use /help to see available commands.\n\nYou can also paste a Kite request_token directly here to connect.";
+            }
             break;
         }
       } catch (error: any) {
