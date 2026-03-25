@@ -1,8 +1,9 @@
 import { runScreener, clearCache } from "./screener";
 import { runDailyLifecycle } from "./live-portfolio";
 import { runAllActiveLifecycles, runAllPreMarketChecks, runAllEndOfDaySummaries } from "./lifecycle";
-import { sendSystemAlert } from "./telegram";
+import { sendSystemAlert, sendTelegramMessage } from "./telegram";
 import { logSystem, getActiveDeployments } from "./storage";
+import { isAuthenticated } from "./kite";
 
 /**
  * Built-in scheduler — refreshes screener data and runs deployment lifecycles.
@@ -21,7 +22,35 @@ interface ScheduleEntry {
   handler: () => Promise<void>;
 }
 
+const KITE_LOGIN_URL = "https://kite.zerodha.com/connect/login?v=3&api_key=qdjxlkbtg8gy0ec3";
+
 const SCHEDULE: ScheduleEntry[] = [
+  {
+    hour: 3, minute: 15,
+    label: "8:45 AM IST (Kite token expiry reminder)",
+    handler: async () => {
+      console.log("[Scheduler] Checking Kite token for morning reminder...");
+      try {
+        if (!isAuthenticated()) {
+          await sendTelegramMessage(
+            [
+              "⏰ <b>Good Morning! Kite token expired.</b>",
+              "",
+              "Click to re-authenticate for today's session:",
+              `<a href="${KITE_LOGIN_URL}">Login to Zerodha</a>`,
+              "",
+              "Pre-market check runs at 9:15 AM IST.",
+            ].join("\n")
+          );
+          console.log("[Scheduler] Kite token expiry reminder sent");
+        } else {
+          console.log("[Scheduler] Kite already connected — no reminder needed");
+        }
+      } catch (e: any) {
+        console.error("[Scheduler] Token reminder error:", e.message);
+      }
+    },
+  },
   {
     hour: 3, minute: 45,
     label: "9:15 AM IST (pre-market check)",

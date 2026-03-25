@@ -1,4 +1,6 @@
 import { KiteConnect } from "kiteconnect";
+import { sendTelegramMessage } from "./telegram";
+import { istNow } from "./storage";
 
 // Environment variables (set these in .env or Railway/AWS)
 const API_KEY = process.env.KITE_API_KEY || "qdjxlkbtg8gy0ec3";
@@ -15,10 +17,30 @@ export function getKite(): KiteConnect {
 let kiteApiWorking = true;
 let lastKiteError = "";
 
+const KITE_LOGIN_URL = "https://kite.zerodha.com/connect/login?v=3&api_key=" + API_KEY;
+
 export function markKiteFailed(reason?: string) {
   kiteApiWorking = false;
   lastKiteError = reason || "API call failed";
   console.log("[Kite] Marked unavailable:", lastKiteError);
+
+  // Send Telegram alert with re-login link
+  try {
+    const time = istNow();
+    sendTelegramMessage(
+      [
+        "⚠️ <b>Kite Token Failed Mid-Session</b>",
+        "",
+        `Error: ${lastKiteError}`,
+        `Time: ${time}`,
+        "",
+        "Click to re-authenticate:",
+        `<a href="${KITE_LOGIN_URL}">Login to Zerodha</a>`,
+      ].join("\n")
+    ).catch(() => { /* never throw from markKiteFailed */ });
+  } catch {
+    // Telegram errors must never crash the server
+  }
 }
 
 export function isAuthenticated(): boolean {

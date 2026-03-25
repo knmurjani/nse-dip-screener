@@ -12,7 +12,9 @@ import { getPortfolioSummary, runDailyLifecycle } from "./live-portfolio";
 import { runBollingerScreener, clearBollingerCache } from "./screener-bollinger";
 import { getAllStrategies, getStrategy } from "./strategies";
 import { runDeploymentLifecycle, runPreMarketCheck, runEndOfDaySummary } from "./lifecycle";
-import { sendMorningBrief, sendDailyPnLSummary } from "./telegram";
+import { sendMorningBrief, sendDailyPnLSummary, sendTelegramMessage } from "./telegram";
+import { startTelegramBot } from "./telegram-bot";
+import { istNow as getIstNow } from "./storage";
 
 export async function registerRoutes(
   httpServer: Server,
@@ -76,10 +78,24 @@ export async function registerRoutes(
     const requestToken = req.query.request_token as string;
     if (requestToken) {
       try {
-        await generateSession(requestToken);
+        const session = await generateSession(requestToken);
         clearCache();
+        // Send Telegram success notification
+        try {
+          const time = getIstNow();
+          await sendTelegramMessage(
+            `✅ <b>Kite Connected</b>\nUser: ${session.user_name}\nTime: ${time}\nToken valid for today's trading session.`
+          );
+        } catch { /* never break redirect on Telegram failure */ }
         res.redirect("/#/?kite=connected");
       } catch (e: any) {
+        // Send Telegram failure notification
+        try {
+          const time = getIstNow();
+          await sendTelegramMessage(
+            `❌ <b>Kite Auth Failed</b>\nError: ${e.message}\nTime: ${time}\nTry again: /login`
+          );
+        } catch { /* never break redirect on Telegram failure */ }
         res.redirect("/#/?kite=error&msg=" + encodeURIComponent(e.message));
       }
     } else {
@@ -885,6 +901,9 @@ export async function registerRoutes(
 
   // Start auto-refresh scheduler
   startScheduler();
+
+  // Start Telegram bot command polling
+  startTelegramBot();
 
   // Auto-set access token if available in environment
   if (process.env.KITE_ACCESS_TOKEN) {
