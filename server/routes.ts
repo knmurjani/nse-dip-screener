@@ -457,9 +457,7 @@ export async function registerRoutes(
 
   // Health check
   app.get("/api/health", (_req, res) => {
-    const railwayVars: Record<string, string> = {};
     for (const [k, v] of Object.entries(process.env)) {
-      if (k.startsWith("RAILWAY") || k.startsWith("VOLUME")) railwayVars[k] = v || "";
     }
     res.json({
       status: "ok",
@@ -468,7 +466,6 @@ export async function registerRoutes(
       dbPath: DB_PATH,
       volumeMounted: !!process.env.RAILWAY_VOLUME_MOUNT_PATH,
       volumePath: process.env.RAILWAY_VOLUME_MOUNT_PATH || "none",
-      railwayVars,
     });
   });
 
