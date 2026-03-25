@@ -211,23 +211,30 @@ function formatChartDate(dateStr: string): string {
 }
 
 function exitLabel(r: string): string {
+  // Support both new human-readable labels and legacy snake_case values
   const labels: Record<string, string> = {
     profit_target: "Profit Target",
     price_action_close_above_prev_high: "Price Action",
-    time_exit_10_days: "Time Exit",
-    sigma_stop: "σ Stop",
-    sigma_target: "σ Target",
-    mean_target: "Mean Target",
-    absolute_stop: "Abs Stop",
-    trailing_stop: "Trail Stop",
+    time_exit_10_days: "Timed Out",
+    sigma_stop: "Band Stop Loss",
+    sigma_target: "Profit Target",
+    mean_target: "Profit Target",
+    absolute_stop: "Stop Loss",
+    trailing_stop: "Trailing Stop Loss",
     deployment_stopped: "Deploy Stop",
   };
-  return labels[r] || r.replace(/_/g, " ");
+  if (labels[r]) return labels[r];
+  // Handle dynamic legacy patterns like time_exit_5_days, time_exit_20_days
+  if (r.match(/^time_exit_\d+_days$/)) return "Timed Out";
+  return r;
 }
 
 function exitBadgeClass(r: string): string {
-  if (r.includes("target") || r.includes("profit")) return "text-[#22c55e] border-green-500/20 bg-green-500/10";
-  if (r.includes("stop") || r.includes("loss")) return "text-loss border-red-500/20 bg-red-500/10";
+  const label = exitLabel(r);
+  if (label === "Profit Target") return "text-[#22c55e] border-green-500/20 bg-green-500/10";
+  if (label === "Timed Out" || label === "Forced Exit") return "text-yellow-500 border-yellow-500/20 bg-yellow-500/10";
+  if (label === "Price Action") return "text-blue-400 border-blue-500/20 bg-blue-500/10";
+  if (label.includes("Stop")) return "text-loss border-red-500/20 bg-red-500/10";
   return "text-blue-400 border-blue-500/20 bg-blue-500/10";
 }
 

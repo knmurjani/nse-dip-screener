@@ -99,7 +99,7 @@ export async function runDailyLifecycle() {
     // Exit 1: Profit target
     if (quote.high >= pos.profitTarget) {
       exitPrice = pos.profitTarget;
-      exitReason = "profit_target";
+      exitReason = "Profit Target";
       exitDetail = `High ₹${quote.high.toFixed(2)} ≥ Target ₹${pos.profitTarget.toFixed(2)} (Entry ₹${pos.entryPrice.toFixed(2)} + 0.5×ATR ₹${(pos.atr5AtEntry * 0.5).toFixed(2)})`;
     }
 
@@ -112,7 +112,7 @@ export async function runDailyLifecycle() {
     // Exit 3: Time-based — 10 trading days
     if (!exitReason && daysHeld >= 10) {
       exitPrice = quote.price;
-      exitReason = "time_exit_10_days";
+      exitReason = "Timed Out";
       exitDetail = `Held ${daysHeld} trading days ≥ 10 day limit — exit at ₹${quote.price.toFixed(2)}`;
     }
 

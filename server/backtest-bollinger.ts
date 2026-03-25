@@ -232,7 +232,7 @@ export async function runBollingerBacktest(params: BollingerBacktestParams): Pro
       const upperBand = ma + ENTRY_SIGMA * stdExit;
       if (bar.close >= upperBand) {
         exitPrice = bar.close;
-        exitReason = "profit_target";
+        exitReason = "Profit Target";
         exitDetail = `✅ +${ENTRY_SIGMA}σ TARGET: Close ₹${bar.close.toFixed(2)} ≥ +${ENTRY_SIGMA}σ ₹${upperBand.toFixed(2)} — mean reversion complete`;
       }
 
@@ -241,7 +241,7 @@ export async function runBollingerBacktest(params: BollingerBacktestParams): Pro
         const stopBand = ma - STOP_SIGMA * stdExit;
         if (bar.close < stopBand) {
           exitPrice = bar.close;
-          exitReason = "price_action_close_above_prev_high";
+          exitReason = "Band Stop Loss";
           exitDetail = `🛑 −${STOP_SIGMA}σ STOP: Close ₹${bar.close.toFixed(2)} < −${STOP_SIGMA}σ band ₹${stopBand.toFixed(2)} — extreme deviation, cut loss`;
         }
       }
@@ -251,7 +251,7 @@ export async function runBollingerBacktest(params: BollingerBacktestParams): Pro
         const absStopPrice = pos.entryPrice * (1 - ABS_STOP / 100);
         if (bar.low <= absStopPrice) {
           exitPrice = absStopPrice;
-          exitReason = "price_action_close_above_prev_high";
+          exitReason = "Stop Loss";
           exitDetail = `🛑 ABS STOP: Low ₹${bar.low.toFixed(2)} ≤ −${ABS_STOP}% from entry = ₹${absStopPrice.toFixed(2)}`;
         }
       }
@@ -261,7 +261,7 @@ export async function runBollingerBacktest(params: BollingerBacktestParams): Pro
         const trailStopPrice = pos.peakPrice * (1 - TRAIL_STOP / 100);
         if (bar.low <= trailStopPrice) {
           exitPrice = trailStopPrice;
-          exitReason = "price_action_close_above_prev_high";
+          exitReason = "Trailing Stop Loss";
           exitDetail = `🛑 TRAIL STOP: Low ₹${bar.low.toFixed(2)} ≤ −${TRAIL_STOP}% from peak ₹${pos.peakPrice.toFixed(2)} = ₹${trailStopPrice.toFixed(2)}`;
         }
       }
@@ -269,7 +269,7 @@ export async function runBollingerBacktest(params: BollingerBacktestParams): Pro
       // Exit 5: Time exit (only if MAX_HOLD > 0)
       if (!exitReason && MAX_HOLD > 0 && pos.tradingDaysHeld >= MAX_HOLD) {
         exitPrice = bar.close;
-        exitReason = "time_exit_10_days";
+        exitReason = "Timed Out";
         exitDetail = `⏰ TIME EXIT: Held ${pos.tradingDaysHeld} days ≥ ${MAX_HOLD} day limit — exit at close ₹${bar.close.toFixed(2)}`;
       }
 
@@ -285,7 +285,7 @@ export async function runBollingerBacktest(params: BollingerBacktestParams): Pro
           entryPrice: Math.round(pos.entryPrice * 100) / 100,
           shares: pos.shares, capitalAllocated: Math.round(pos.capitalAllocated),
           exitDate: today,
-          exitTime: exitReason === "profit_target" ? `${today} (intraday)` : `${today} 15:30:00 IST`,
+          exitTime: exitReason === "Profit Target" ? `${today} (intraday)` : `${today} 15:30:00 IST`,
           exitPrice: Math.round(exitPrice * 100) / 100,
           exitReason, exitReasonDetail: exitDetail,
           pnl: Math.round(pnl), pnlPct: Math.round(((exitPrice - pos.entryPrice) / pos.entryPrice) * 10000) / 100,
@@ -434,7 +434,7 @@ export async function runBollingerBacktest(params: BollingerBacktestParams): Pro
       exitDate: sortedDates[sortedDates.length - 1],
       exitTime: `${sortedDates[sortedDates.length - 1]} 15:30:00 IST`,
       exitPrice: Math.round(lastBar.close * 100) / 100,
-      exitReason: "time_exit_10_days", exitReasonDetail: "Backtest ended — force closed",
+      exitReason: "Forced Exit", exitReasonDetail: "Backtest ended — force closed",
       pnl: Math.round(pnl), pnlPct: Math.round(((lastBar.close - pos.entryPrice) / pos.entryPrice) * 10000) / 100,
       daysHeld: pos.tradingDaysHeld, setupScore: pos.setupScore,
       atr5AtEntry: 0, profitTargetPrice: Math.round(pos.targetPrice * 100) / 100,

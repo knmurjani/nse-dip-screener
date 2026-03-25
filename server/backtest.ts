@@ -23,7 +23,7 @@ export interface Trade {
   exitDate: string;
   exitTime: string;
   exitPrice: number;
-  exitReason: "profit_target" | "price_action_close_above_prev_high" | "time_exit_10_days";
+  exitReason: string;
   exitReasonDetail: string;
   pnl: number;
   pnlPct: number;
@@ -315,14 +315,14 @@ export async function runBacktest(params: ATRBacktestParams): Promise<BacktestRe
       // Exit 1: Profit target — entry + 0.5 * ATR(5)
       if (bar.high >= pos.profitTarget) {
         exitPrice = pos.profitTarget;
-        exitReason = "profit_target";
+        exitReason = "Profit Target";
         exitReasonDetail = `High ₹${bar.high.toFixed(2)} ≥ Target ₹${pos.profitTarget.toFixed(2)} (Entry ₹${pos.entryPrice.toFixed(2)} + ${PROFIT_MULT}×ATR ₹${(pos.atr5 * PROFIT_MULT).toFixed(2)})`;
       }
 
       // Exit 2: Price action — close > previous day's high (configurable)
       if (!exitReason && PRICE_ACTION_EXIT && prevBar && bar.close > prevBar.high) {
         exitPrice = bar.close;
-        exitReason = "price_action_close_above_prev_high";
+        exitReason = "Price Action";
         exitReasonDetail = `Close ₹${bar.close.toFixed(2)} > Prev High ₹${prevBar.high.toFixed(2)} — rebound confirmed`;
       }
 
@@ -331,7 +331,7 @@ export async function runBacktest(params: ATRBacktestParams): Promise<BacktestRe
         const absStopPrice = pos.entryPrice * (1 - ABS_STOP / 100);
         if (bar.low <= absStopPrice) {
           exitPrice = absStopPrice;
-          exitReason = "price_action_close_above_prev_high";
+          exitReason = "Stop Loss";
           exitReasonDetail = `🛑 ABS STOP: Low ₹${bar.low.toFixed(2)} ≤ −${ABS_STOP}% from entry = ₹${absStopPrice.toFixed(2)}`;
         }
       }
@@ -341,7 +341,7 @@ export async function runBacktest(params: ATRBacktestParams): Promise<BacktestRe
         const trailStopPrice = pos.peakPrice * (1 - TRAIL_STOP / 100);
         if (bar.low <= trailStopPrice) {
           exitPrice = trailStopPrice;
-          exitReason = "price_action_close_above_prev_high";
+          exitReason = "Trailing Stop Loss";
           exitReasonDetail = `🛑 TRAIL STOP: Low ₹${bar.low.toFixed(2)} ≤ −${TRAIL_STOP}% from peak ₹${pos.peakPrice.toFixed(2)} = ₹${trailStopPrice.toFixed(2)}`;
         }
       }
@@ -349,7 +349,7 @@ export async function runBacktest(params: ATRBacktestParams): Promise<BacktestRe
       // Exit 5: Time-based — configurable max hold days
       if (!exitReason && pos.tradingDaysHeld >= MAX_HOLD) {
         exitPrice = bar.close;
-        exitReason = "time_exit_10_days";
+        exitReason = "Timed Out";
         exitReasonDetail = `Held ${pos.tradingDaysHeld} trading days ≥ ${MAX_HOLD} day limit — forced exit at close ₹${bar.close.toFixed(2)}`;
       }
 
@@ -371,7 +371,7 @@ export async function runBacktest(params: ATRBacktestParams): Promise<BacktestRe
           shares: pos.shares,
           capitalAllocated: Math.round(pos.capitalAllocated),
           exitDate: today,
-          exitTime: exitReason === "profit_target" ? `${today} (intraday)` : `${today} 15:30:00 IST`,
+          exitTime: exitReason === "Profit Target" ? `${today} (intraday)` : `${today} 15:30:00 IST`,
           exitPrice: Math.round(exitPrice * 100) / 100,
           exitReason,
           exitReasonDetail,
@@ -539,7 +539,7 @@ export async function runBacktest(params: ATRBacktestParams): Promise<BacktestRe
       exitDate: lastDate,
       exitTime: `${lastDate} 15:30:00 IST`,
       exitPrice: Math.round(lastBar.close * 100) / 100,
-      exitReason: "time_exit_10_days",
+      exitReason: "Forced Exit",
       exitReasonDetail: `Backtest ended — force closed at ₹${lastBar.close.toFixed(2)}`,
       pnl: Math.round(pnl),
       pnlPct: Math.round(pnlPct * 100) / 100,

@@ -312,13 +312,13 @@ export async function runDeploymentLifecycle(deploymentId: number): Promise<Life
             : pos.entry_price * 1.005;
           if (quote.high >= profitTarget) {
             exitPrice = profitTarget;
-            exitReason = "profit_target";
+            exitReason = "Profit Target";
             exitDetail = `High ₹${quote.high.toFixed(2)} ≥ Target ₹${profitTarget.toFixed(2)}`;
           }
           // Time exit
           if (!exitReason && deployment.max_hold_days > 0 && daysHeld >= deployment.max_hold_days) {
             exitPrice = quote.price;
-            exitReason = `time_exit_${deployment.max_hold_days}_days`;
+            exitReason = "Timed Out";
             exitDetail = `Held ${daysHeld} days ≥ ${deployment.max_hold_days} day limit`;
           }
         } else {
@@ -332,7 +332,7 @@ export async function runDeploymentLifecycle(deploymentId: number): Promise<Life
 
             if (quote.price >= targetPrice) {
               exitPrice = quote.price;
-              exitReason = "sigma_target";
+              exitReason = "Profit Target";
               exitDetail = `Price ₹${quote.price.toFixed(2)} ≥ Target (${targetSigma > 0 ? `+${targetSigma}σ` : "Mean"} = ₹${targetPrice.toFixed(2)})`;
             }
 
@@ -341,7 +341,7 @@ export async function runDeploymentLifecycle(deploymentId: number): Promise<Life
               const stopPrice = bands.mean - deployment.stop_loss_sigma * oneSigma;
               if (quote.low <= stopPrice) {
                 exitPrice = quote.price;  // Use actual current price, consistent with backtest
-                exitReason = "sigma_stop";
+                exitReason = "Band Stop Loss";
                 exitDetail = `Low ₹${quote.low.toFixed(2)} ≤ Stop (−${deployment.stop_loss_sigma}σ = ₹${stopPrice.toFixed(2)})`;
               }
             }
@@ -350,7 +350,7 @@ export async function runDeploymentLifecycle(deploymentId: number): Promise<Life
           // Time exit (fallback)
           if (!exitReason && deployment.max_hold_days > 0 && daysHeld >= deployment.max_hold_days) {
             exitPrice = quote.price;
-            exitReason = `time_exit_${deployment.max_hold_days}_days`;
+            exitReason = "Timed Out";
             exitDetail = `Held ${daysHeld} days ≥ ${deployment.max_hold_days} day limit`;
           }
         }
@@ -360,7 +360,7 @@ export async function runDeploymentLifecycle(deploymentId: number): Promise<Life
           const stopPrice = pos.entry_price * (1 - deployment.absolute_stop_pct / 100);
           if (quote.low <= stopPrice) {
             exitPrice = stopPrice;
-            exitReason = "absolute_stop";
+            exitReason = "Stop Loss";
             exitDetail = `Low ₹${quote.low.toFixed(2)} ≤ Stop ₹${stopPrice.toFixed(2)} (−${deployment.absolute_stop_pct}%)`;
           }
         }
@@ -370,7 +370,7 @@ export async function runDeploymentLifecycle(deploymentId: number): Promise<Life
           const trailStop = peakPrice * (1 - deployment.trailing_stop_pct / 100);
           if (quote.low <= trailStop) {
             exitPrice = trailStop;
-            exitReason = "trailing_stop";
+            exitReason = "Trailing Stop Loss";
             exitDetail = `Low ₹${quote.low.toFixed(2)} ≤ Trail Stop ₹${trailStop.toFixed(2)} (peak ₹${peakPrice.toFixed(2)} −${deployment.trailing_stop_pct}%)`;
           }
         }
@@ -431,7 +431,7 @@ export async function runDeploymentLifecycle(deploymentId: number): Promise<Life
               strategy: strategyLabel,
               pnl: exitPnl,
               pnlPct: exitPnlPct,
-              exitReason: exitReason.replace(/_/g, " "),
+              exitReason,
               daysHeld,
             });
           } catch {}

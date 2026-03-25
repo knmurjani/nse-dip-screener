@@ -183,8 +183,10 @@ export default function BollingerTradeChart({ symbol, entryDate, exitDate, entry
   const entryChartDate = findClosestDate(entryDate);
   const exitChartDate = findClosestDate(exitDate);
   const isLoss = exitPrice < entryPrice;
-  const exitColor = isLoss ? "#ef4444" : "#f59e0b";
-  const exitLabel = isLoss ? `STOP ₹${exitPrice.toFixed(0)}` : `SELL ₹${exitPrice.toFixed(0)}`;
+  const isStop = exitReason.includes("Stop");
+  const exitColor = isStop ? "#ef4444" : isLoss ? "#ef4444" : "#f59e0b";
+  const chartExitLabel = isStop ? exitReason : (exitReason === "Timed Out" || exitReason === "Forced Exit" ? exitReason : "SELL");
+  const exitLabel = `${chartExitLabel} ₹${exitPrice.toFixed(0)}`;
   const entryLabel = `BUY ₹${entryPrice.toFixed(0)}`;
 
   // Find min/max for better Y axis domain (include entry/exit prices)

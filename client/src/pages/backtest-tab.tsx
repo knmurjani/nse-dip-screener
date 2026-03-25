@@ -30,7 +30,7 @@ interface Trade {
   id: number; symbol: string; name: string; signalDate: string;
   entryDate: string; entryTime: string; entryPrice: number; shares: number; capitalAllocated: number;
   exitDate: string; exitTime: string; exitPrice: number;
-  exitReason: "profit_target" | "price_action_close_above_prev_high" | "time_exit_10_days";
+  exitReason: string;
   exitReasonDetail: string;
   pnl: number; pnlPct: number; daysHeld: number; setupScore: number;
   atr5AtEntry: number; profitTargetPrice: number;
@@ -88,21 +88,15 @@ function fmtPrice(v: number): string {
 }
 
 function exitLabel(r: string): string {
-  switch (r) {
-    case "profit_target": return "Profit Target";
-    case "price_action_close_above_prev_high": return "Price Action";
-    case "time_exit_10_days": return "Time Exit";
-    default: return r;
-  }
+  return r;
 }
 
 function exitBadgeClass(r: string): string {
-  switch (r) {
-    case "profit_target": return "text-[#22c55e] border-green-500/20 bg-green-500/10";
-    case "price_action_close_above_prev_high": return "text-blue-400 border-blue-500/20 bg-blue-500/10";
-    case "time_exit_10_days": return "text-yellow-500 border-yellow-500/20 bg-yellow-500/10";
-    default: return "";
-  }
+  if (r === "Profit Target") return "text-[#22c55e] border-green-500/20 bg-green-500/10";
+  if (r === "Timed Out" || r === "Forced Exit") return "text-yellow-500 border-yellow-500/20 bg-yellow-500/10";
+  if (r === "Price Action") return "text-blue-400 border-blue-500/20 bg-blue-500/10";
+  if (r.includes("Stop")) return "text-loss border-red-500/20 bg-red-500/10";
+  return "";
 }
 
 function formatChartDate(dateStr: string): string {
