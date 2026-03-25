@@ -68,6 +68,7 @@ interface BacktestRunSummary {
   total_trades: number; annualized_return_pct: number; total_return_pct: number;
   win_rate: number; sharpe_ratio: number; max_drawdown_pct: number; data_source: string;
   strategy_id?: string;
+  params_json?: string;
 }
 
 // ─── Helpers ───
@@ -170,6 +171,7 @@ export default function BacktestTab() {
 
   // Sync dropdown to loaded data
   const activeRunId = data?.id ? String(data.id) : effectiveRunId;
+  const activeRun = (runs ?? []).find(r => String(r.id) === activeRunId);
 
   const handleSelectRun = (runId: string) => {
     setSelectedRunId(runId);
@@ -570,17 +572,36 @@ export default function BacktestTab() {
       ) : s ? (
         <>
           {/* Run header */}
-          <div className="flex items-center justify-between">
+          <div className="flex items-start justify-between gap-4">
             <div>
               <h2 className="text-sm font-semibold" data-testid="backtest-period">
                 Backtest — {strategyName}
-                <span className="font-normal text-muted-foreground"> · {data?.name}: {data?.period.from} → {data?.period.to}</span>
+                <span className="font-normal text-muted-foreground"> · {data?.name}</span>
               </h2>
               <p className="text-[11px] text-muted-foreground">
-                {`₹${(s.initialCapital / 100000).toFixed(0)}L capital · ${s.maxPositions} max positions · ${s.positionSizePct}% per trade`}
+                {data?.period.from} → {data?.period.to}
+                {` · ₹${(s.initialCapital / 100000).toFixed(0)}L capital · ${s.maxPositions} max positions · ${s.positionSizePct}% per trade`}
                 {s.dataSource && ` · via ${s.dataSource}`}
               </p>
+              {/* IST timestamp from the run */}
+              {activeRun?.created_at && (
+                <p className="text-[10px] text-muted-foreground/70 tabular-nums mt-0.5">
+                  Run date: {activeRun.created_at}
+                </p>
+              )}
             </div>
+            {/* Delete button */}
+            {data?.id && (
+              <Button
+                variant="ghost" size="sm" className="h-7 px-2 text-[10px] text-muted-foreground hover:text-loss shrink-0"
+                onClick={() => data?.id && handleDeleteRun(data.id)}
+                disabled={isDeleting === data?.id}
+                data-testid="button-delete-active-run"
+              >
+                {isDeleting === data?.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <Trash2 className="w-3 h-3 mr-1" />}
+                Delete Run
+              </Button>
+            )}
           </div>
 
           {/* ── Summary Dashboard ── */}
@@ -684,7 +705,7 @@ export default function BacktestTab() {
           </div>
 
           {/* ── Strategy Rules ── */}
-          <StrategyRulesCard strategyId={strategyId} />
+          <StrategyRulesCard strategyId={strategyId} paramsJson={activeRun?.params_json} />
 
           {/* ── Charts ── */}
           {chartData.length > 0 && (
@@ -972,46 +993,53 @@ function SortHead({ label, field, current, dir, onClick, align = "left" }: {
   );
 }
 
-function StrategyRulesCard({ strategyId }: { strategyId: string }) {
+function StrategyRulesCard({ strategyId, paramsJson }: { strategyId: string; paramsJson?: string }) {
   const [open, setOpen] = useState(false);
-  const rules = strategyId === "bollinger_mr" ? {
-    entry: [
-      "20-day MA + StdDev bands",
-      "Watchlist: close drops below \u22122\u03c3",
-      "Entry: close crosses back above the 20-DMA (mean)",
-      "Entry price = 20-DMA value at crossover",
-      "Fixed sizing: Capital / Max Positions (no compounding)",
-    ],
-    exit: [
-      { name: "+2\u03c3 Target", desc: "Close > upper +2\u03c3 band" },
-      { name: "\u22122\u03c3 Stop", desc: "Close < lower \u22122\u03c3 band" },
-    ],
+
+  // Try to use rules saved with this specific backtest run
+  let savedEntry: string[] | null = null;
+  let savedExit: { name: string; description: string }[] | null = null;
+  let savedParams: Record<string, unknown> | null = null;
+  if (paramsJson) {
+    try {
+      const p = JSON.parse(paramsJson);
+      savedParams = p;
+      if (p.entryRules && Array.isArray(p.entryRules)) savedEntry = p.entryRules;
+      if (p.exitRules && Array.isArray(p.exitRules)) savedExit = p.exitRules;
+    } catch {}
+  }
+
+  // Fallback to generic strategy rules if no saved rules
+  const defaultRules = strategyId === "bollinger_mr" ? {
+    entry: ["20-day MA + StdDev bands", "Watchlist: close drops below \u22122\u03c3", "Entry: close crosses above 20-DMA (mean)", "Entry price = 20-DMA at crossover", "Fixed sizing (no compounding)"],
+    exit: [{ name: "+2\u03c3 Target", desc: "Close > +2\u03c3 band" }, { name: "\u22122\u03c3 Stop", desc: "Close < \u22122\u03c3 band" }],
   } : strategyId === "bollinger_bounce" ? {
-    entry: [
-      "20-day MA + StdDev bands",
-      "Watchlist when below \u22122\u03c3",
-      "Buy when crosses back above \u22122\u03c3",
-      "Rank by distance below mean",
-    ],
-    exit: [
-      { name: "Mean Target", desc: "Price reaches 20-DMA" },
-      { name: "\u22123\u03c3 Stop", desc: "Price drops to \u22123\u03c3" },
-      { name: "Time Exit", desc: "10 trading days max" },
-    ],
+    entry: ["20-day MA + StdDev bands", "Watchlist below \u22122\u03c3", "Buy on cross above \u22122\u03c3", "Rank by distance below mean"],
+    exit: [{ name: "Mean Target", desc: "Price reaches 20-DMA" }, { name: "\u22123\u03c3 Stop", desc: "Price drops to \u22123\u03c3" }, { name: "Time Exit", desc: "10 days max" }],
   } : {
-    entry: [
-      "Above 200-DMA",
-      "Drop > 3%",
-      "ATR% > 3%",
-      "Limit buy at Close \u2212 0.9\u00d7ATR",
-      "Rank by ATR/Close",
-    ],
-    exit: [
-      { name: "Profit Target", desc: "Entry + 0.5\u00d7ATR(5)" },
-      { name: "Price Action", desc: "Close > prev high" },
-      { name: "Time Exit", desc: "10 trading days max" },
-    ],
+    entry: ["Above 200-DMA", "Drop > 3%", "ATR% > 3%", "Limit buy at Close \u2212 0.9\u00d7ATR", "Rank by ATR/Close"],
+    exit: [{ name: "Profit Target", desc: "Entry + 0.5\u00d7ATR(5)" }, { name: "Price Action", desc: "Close > prev high" }, { name: "Time Exit", desc: "10 days max" }],
   };
+
+  const entryRules = savedEntry || defaultRules.entry;
+  const exitRules = savedExit
+    ? savedExit.map(r => ({ name: r.name, desc: r.description }))
+    : defaultRules.exit;
+
+  // Extract key params to show
+  const paramsList: string[] = [];
+  if (savedParams) {
+    if (savedParams.capitalRs) paramsList.push(`Capital: \u20b9${((savedParams.capitalRs as number) / 100000).toFixed(0)}L`);
+    if (savedParams.maxPositions) paramsList.push(`Max Positions: ${savedParams.maxPositions}`);
+    if (savedParams.maxHoldDays) paramsList.push(`Max Hold: ${savedParams.maxHoldDays}d`);
+    if (savedParams.maPeriod) paramsList.push(`MA: ${savedParams.maPeriod}`);
+    if (savedParams.entryBandSigma) paramsList.push(`Entry \u03c3: ${savedParams.entryBandSigma}`);
+    if (savedParams.targetBandSigma) paramsList.push(`Target \u03c3: ${savedParams.targetBandSigma}`);
+    if (savedParams.stopLossSigma) paramsList.push(`Stop \u03c3: ${savedParams.stopLossSigma}`);
+    if (savedParams.absoluteStopPct) paramsList.push(`Abs Stop: ${savedParams.absoluteStopPct}%`);
+    if (savedParams.trailingStopPct) paramsList.push(`Trail Stop: ${savedParams.trailingStopPct}%`);
+    if (savedParams.allowParallelPositions) paramsList.push(`Parallel: Yes`);
+  }
 
   return (
     <Card data-testid="strategy-rules-card">
@@ -1020,6 +1048,11 @@ function StrategyRulesCard({ strategyId }: { strategyId: string }) {
           <span className="flex items-center gap-2">
             <Info className="w-3.5 h-3.5 text-primary" />
             Entry & Exit Rules
+            {paramsList.length > 0 && (
+              <span className="font-normal text-[10px] text-muted-foreground">
+                ({paramsList.join(" \u00b7 ")})
+              </span>
+            )}
           </span>
           {open ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
         </CardTitle>
@@ -1032,7 +1065,7 @@ function StrategyRulesCard({ strategyId }: { strategyId: string }) {
                 <Crosshair className="w-3 h-3 text-primary" /> Entry Rules
               </h4>
               <ol className="space-y-1.5">
-                {rules.entry.map((rule, i) => (
+                {entryRules.map((rule, i) => (
                   <li key={i} className="flex items-start gap-2">
                     <span className="flex-shrink-0 w-4 h-4 rounded-full bg-primary/10 text-primary flex items-center justify-center text-[9px] font-bold mt-0.5">
                       {i + 1}
@@ -1047,7 +1080,7 @@ function StrategyRulesCard({ strategyId }: { strategyId: string }) {
                 <Clock className="w-3 h-3 text-primary" /> Exit Rules
               </h4>
               <div className="space-y-1.5">
-                {rules.exit.map((rule, i) => (
+                {exitRules.map((rule, i) => (
                   <div key={i} className="flex items-start gap-2">
                     <Badge variant="outline" className="text-[9px] px-1.5 shrink-0">{rule.name}</Badge>
                     <span className="text-[11px] text-muted-foreground">{rule.desc}</span>
