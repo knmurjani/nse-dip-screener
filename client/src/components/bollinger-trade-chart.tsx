@@ -148,12 +148,7 @@ export default function BollingerTradeChart({ symbol, entryDate, exitDate, entry
               </span>
             </>
           )}
-          <span className="flex items-center gap-1">
-            <span className="w-1.5 h-3 bg-[#22c55e] inline-block" style={{ borderRight: "2px dashed #22c55e" }} /> Entry
-          </span>
-          <span className="flex items-center gap-1">
-            <span className="w-1.5 h-3 bg-orange-500 inline-block" style={{ borderRight: "2px dashed #f97316" }} /> Exit
-          </span>
+
         </div>
       </div>
       <ResponsiveContainer width="100%" height={280}>
@@ -250,24 +245,7 @@ export default function BollingerTradeChart({ symbol, entryDate, exitDate, entry
           <Line type="monotone" dataKey="high" stroke="transparent" dot={false} name="high" isAnimationActive={false} />
           <Line type="monotone" dataKey="low" stroke="transparent" dot={false} name="low" isAnimationActive={false} />
 
-          {/* Trade holding period shading */}
-          <ReferenceArea
-            x1={entryDate} x2={exitDate}
-            fill="#22c55e" fillOpacity={0.06}
-            stroke="#22c55e" strokeOpacity={0.15}
-          />
 
-          {/* Entry vertical marker */}
-          <ReferenceLine
-            x={entryDate} stroke="#22c55e" strokeWidth={2} strokeDasharray="4 3"
-            label={{ value: `▲ Entry ₹${entryPrice.toFixed(0)}`, position: "insideBottomRight", fontSize: 10, fill: "#22c55e", fontWeight: 700 }}
-          />
-
-          {/* Exit vertical marker */}
-          <ReferenceLine
-            x={exitDate} stroke="#f97316" strokeWidth={2} strokeDasharray="4 3"
-            label={{ value: `▼ Exit ₹${exitPrice.toFixed(0)}`, position: "insideTopRight", fontSize: 10, fill: "#f97316", fontWeight: 700 }}
-          />
 
 
         </ComposedChart>
