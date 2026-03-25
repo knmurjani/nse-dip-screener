@@ -115,7 +115,7 @@ export async function registerRoutes(
             `✅ <b>Kite Connected</b>\nUser: ${session.user_name}\nTime: ${time}\nToken valid for today's trading session.`
           );
         } catch { /* never break redirect on Telegram failure */ }
-        res.redirect("/#/?kite=connected");
+        res.redirect("/");
       } catch (e: any) {
         // Send Telegram failure notification
         try {
@@ -124,7 +124,7 @@ export async function registerRoutes(
             `❌ <b>Kite Auth Failed</b>\nError: ${e.message}\nTime: ${time}\nTry again: /login`
           );
         } catch { /* never break redirect on Telegram failure */ }
-        res.redirect("/#/?kite=error&msg=" + encodeURIComponent(e.message));
+        res.redirect("/");
       }
     } else {
       res.redirect("/#/");
@@ -1089,6 +1089,22 @@ export async function registerRoutes(
       res.json({ success: true, message: "Daily P&L summary sent" });
     } catch (error: any) {
       res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Kite connection test — actually makes a Kite API call to verify
+  app.get("/api/kite/test", async (_req, res) => {
+    try {
+      const status = getKiteStatus();
+      if (!status.connected) {
+        return res.json({ ok: false, error: "Not connected", status });
+      }
+      // Try fetching profile — this will fail if token is invalid
+      const kite = getKite();
+      const profile = await kite.getProfile();
+      res.json({ ok: true, user: profile.user_name || profile.user_id, email: profile.email });
+    } catch (err: any) {
+      res.json({ ok: false, error: err.message, hint: "Token is in memory but rejected by Kite" });
     }
   });
 

@@ -11,9 +11,7 @@ let tokenExpiry: string | null = null; // YYYY-MM-DD of when token was set
 
 // ─── Token Persistence: load from env → DB → null ───
 function loadPersistedToken(): string | null {
-  // 1. Environment variable takes priority
-  if (process.env.KITE_ACCESS_TOKEN) return process.env.KITE_ACCESS_TOKEN;
-  // 2. Try SQLite (survives deploys if volume is mounted)
+  // 1. Try SQLite first (has the freshest token from login, survives deploys)
   try {
     const saved = getConfig("kite_access_token");
     const savedDate = getConfig("kite_token_date");
@@ -29,6 +27,11 @@ function loadPersistedToken(): string | null {
     }
   } catch (e) {
     console.error("[Kite] Failed to load persisted token:", e);
+  }
+  // 2. Fall back to environment variable
+  if (process.env.KITE_ACCESS_TOKEN) {
+    console.log("[Kite] Using access token from environment variable (may be stale)");
+    return process.env.KITE_ACCESS_TOKEN;
   }
   return null;
 }
