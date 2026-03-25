@@ -350,56 +350,73 @@ export async function runBollingerMRBacktest(params: BollingerMRParams): Promise
     for (const idx of toClose.reverse()) openPositions.splice(idx, 1);
 
     // ─── Check for new entries ───
-    // Python logic: two-phase — first add to watchlist (close < -2σ), then enter when close > mean
-    if (openPositions.length < MAX_POS) {
-      for (const [symbol, bars] of allBars.entries()) {
-        const idxMap = barIndex.get(symbol);
-        if (!idxMap) continue;
-        const tIdx = idxMap.get(today);
-        if (tIdx === undefined || tIdx < MA_PERIOD + 1) continue;
+    // Two-phase: (1) add to watchlist when close < watchlist band, (2) enter when close crosses above entry band
+    // The crossover must be real: stock was below the entry threshold yesterday, and above it today
+    for (const [symbol, bars] of allBars.entries()) {
+      const idxMap = barIndex.get(symbol);
+      if (!idxMap) continue;
+      const tIdx = idxMap.get(today);
+      if (tIdx === undefined || tIdx < MA_PERIOD + 1) continue;
 
-        const bar = bars[tIdx];
-        const ma = computeSMA(bars, tIdx, MA_PERIOD);
-        const std = computeStdDev(bars, tIdx, MA_PERIOD);
-        if (ma === 0 || std === 0) continue;
+      const bar = bars[tIdx];
+      const prevBar = bars[tIdx - 1];
+      const ma = computeSMA(bars, tIdx, MA_PERIOD);
+      const std = computeStdDev(bars, tIdx, MA_PERIOD);
+      if (ma === 0 || std === 0) continue;
 
-        // Watchlist threshold: configurable (below -Nσ or below mean)
-        const watchlistThreshold = watchlistCfg.useMean ? ma : (ma - watchlistCfg.sigma * std);
-        // Entry threshold: configurable (cross above mean or cross above ±Nσ)
-        const entryThreshold = entryCfg.useMean ? ma : (ma + entryCfg.sigma * std);
+      const prevMa = computeSMA(bars, tIdx - 1, MA_PERIOD);
+      const prevStd = computeStdDev(bars, tIdx - 1, MA_PERIOD);
 
-        // Phase 1: Add to watchlist if close < watchlist threshold
-        if (!watchlist.has(symbol) && bar.close < watchlistThreshold) {
+      // Watchlist threshold: configurable (below -Nσ or below mean)
+      const watchlistThreshold = watchlistCfg.useMean ? ma : (ma - watchlistCfg.sigma * std);
+      // Entry threshold: configurable (cross above mean or cross above ±Nσ)
+      const entryThreshold = entryCfg.useMean ? ma : (ma + entryCfg.sigma * std);
+      const prevEntryThreshold = entryCfg.useMean ? prevMa : (prevMa + entryCfg.sigma * prevStd);
+
+      // Phase 1: Add to watchlist if close < watchlist threshold
+      if (bar.close < watchlistThreshold) {
+        if (!watchlist.has(symbol)) {
           if (!ALLOW_PARALLEL && openPositions.some(p => p.symbol === symbol)) continue;
           watchlist.add(symbol);
-          continue;
         }
+        continue; // Still below watchlist band — don't check entry yet
+      }
 
-        // Phase 2: Entry — on watchlist AND close crosses above entry threshold
-        if (watchlist.has(symbol) && bar.close > entryThreshold && openPositions.length < MAX_POS) {
+      // Phase 2: Entry — must be on watchlist AND a genuine crossover happened
+      // Crossover = was below entry threshold yesterday, above it today
+      if (watchlist.has(symbol) && openPositions.length < MAX_POS) {
+        const wasBelowYesterday = prevBar.close < prevEntryThreshold;
+        const isAboveToday = bar.close > entryThreshold;
+
+        if (wasBelowYesterday && isAboveToday) {
           if (!ALLOW_PARALLEL && openPositions.some(p => p.symbol === symbol)) continue;
 
-          // Entry price = the threshold value (mean or band level)
-          const entryPrice = entryThreshold;
+          // Entry price = the CLOSE price (actual market price, not the band level)
+          const entryPrice = bar.close;
           const shares = Math.floor(POSITION_SIZE / entryPrice);
           if (shares <= 0 || cash < shares * entryPrice) continue;
 
           cash -= shares * entryPrice;
-          const distToUpper = ((ma + TARGET_SIGMA * std - entryPrice) / entryPrice) * 100;
+          const targetLevel = exitTargetCfg.useMean ? ma : (ma + exitTargetCfg.sigma * std);
+          const distToTarget = ((targetLevel - entryPrice) / entryPrice) * 100;
 
           openPositions.push({
             id: ++tradeId, symbol, name: NSE_UNIVERSE.find(s => s.symbol === symbol)?.name || symbol.replace(".NS", ""),
             signalDate: today, entryDate: today,
             entryPrice, shares, capitalAllocated: shares * entryPrice,
-            setupScore: Math.round(distToUpper * 100) / 100,
+            setupScore: Math.round(distToTarget * 100) / 100,
             ma20AtEntry: ma, stdDevAtEntry: std,
             tradingDaysHeld: 0, peakPrice: bar.close,
             portfolioValueAtEntry: getCurrentValue(),
           });
 
-          // Remove from watchlist after entry
+          watchlist.delete(symbol);
+        } else if (isAboveToday) {
+          // Price is above entry threshold but no crossover happened (was already above yesterday)
+          // Remove from watchlist — the dip opportunity has passed without a clean crossover
           watchlist.delete(symbol);
         }
+        // If still below entry threshold, keep on watchlist and wait
       }
     }
 
