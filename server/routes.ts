@@ -168,11 +168,13 @@ export async function registerRoutes(
   // Run a new backtest and save it permanently
   app.post("/api/backtest/run", async (req, res) => {
     try {
-      const { name, capital, maxPositions, years, fromDate, toDate, strategyId, absoluteStopPct, trailingStopPct, maPeriod, entryBandSigma, stopLossSigma, targetBandSigma, maxHoldDays, allowParallelPositions } = req.body;
+      const { name, capital, maxPositions, years, fromDate, toDate, strategyId, absoluteStopPct, trailingStopPct, maPeriod, entryBandSigma, stopLossSigma, targetBandSigma, maxHoldDays, allowParallelPositions, watchlistCondition, entryCondition, exitTarget, exitStopBand } = req.body;
       const strategy = strategyId || "atr_dip_buyer";
 
       let result;
       const commonParams = { capitalRs: capital || 1000000, maxPositions: maxPositions || 10, lookbackYears: years || 5 };
+
+      const bollingerConditions = { watchlistCondition, entryCondition, exitTarget, exitStopBand };
 
       if (strategy === "bollinger_mr") {
         result = await runBollingerMRBacktest({
@@ -187,6 +189,7 @@ export async function registerRoutes(
           allowParallelPositions: allowParallelPositions || false,
           absoluteStopPct: absoluteStopPct || undefined,
           trailingStopPct: trailingStopPct || undefined,
+          ...bollingerConditions,
         });
       } else if (strategy === "bollinger_bounce") {
         result = await runBollingerBacktest({
@@ -199,6 +202,7 @@ export async function registerRoutes(
           maxHoldDays: maxHoldDays || 10,
           absoluteStopPct: absoluteStopPct || undefined,
           trailingStopPct: trailingStopPct || undefined,
+          ...bollingerConditions,
         });
       } else {
         clearBacktestCache();
@@ -218,11 +222,35 @@ export async function registerRoutes(
       const istNow = new Date(Date.now() + 5.5 * 60 * 60 * 1000);
       const now = istNow.toISOString().replace("T", " ").split(".")[0] + " IST";
       const strategyDef = getStrategy(strategy);
+      // Build human-readable rule descriptions for this specific run
+      const condLabels: Record<string, string> = {
+        "below_-1s": "Below −1σ", "below_-2s": "Below −2σ", "below_-3s": "Below −3σ", "below_mean": "Below Mean (20-DMA)",
+        "cross_above_-2s": "Cross above −2σ", "cross_above_-1s": "Cross above −1σ",
+        "cross_above_mean": "Cross above Mean (20-DMA)", "cross_above_+1s": "Cross above +1σ",
+        "reach_mean": "Reach Mean (20-DMA)", "reach_+1s": "Reach +1σ", "reach_+2s": "Reach +2σ", "reach_+3s": "Reach +3σ",
+        "below_-2s_stop": "Drop below −2σ", "below_-3s_stop": "Drop below −3σ", "below_-4s_stop": "Drop below −4σ",
+      };
+
       const allParams = {
         ...commonParams, strategyId: strategy, absoluteStopPct, trailingStopPct,
-        maPeriod, entryBandSigma, stopLossSigma, maxHoldDays, fromDate, toDate,
-        entryRules: strategyDef?.entryRules || [],
-        exitRules: strategyDef?.exitRules || [],
+        maPeriod, entryBandSigma, stopLossSigma, targetBandSigma, maxHoldDays, fromDate, toDate,
+        allowParallelPositions,
+        // Configurable conditions
+        watchlistCondition, entryCondition, exitTarget, exitStopBand,
+        // Human-readable rules for this specific run
+        entryRules: [
+          ...(strategyDef?.entryRules || []),
+          ...(watchlistCondition ? [`Watchlist: ${condLabels[watchlistCondition] || watchlistCondition}`] : []),
+          ...(entryCondition ? [`Entry: ${condLabels[entryCondition] || entryCondition}`] : []),
+        ],
+        exitRules: [
+          ...(strategyDef?.exitRules || []),
+          ...(exitTarget ? [{ name: "Profit Target", description: condLabels[exitTarget] || exitTarget }] : []),
+          ...(exitStopBand ? [{ name: "Band Stop", description: condLabels[exitStopBand] || exitStopBand }] : []),
+          ...(absoluteStopPct ? [{ name: "Absolute Stop", description: `−${absoluteStopPct}% from entry` }] : []),
+          ...(trailingStopPct ? [{ name: "Trailing Stop", description: `−${trailingStopPct}% from peak` }] : []),
+          ...(maxHoldDays && maxHoldDays > 0 ? [{ name: "Time Exit", description: `${maxHoldDays} trading days max` }] : []),
+        ],
       };
 
       const sqlite = new Database(DB_PATH);

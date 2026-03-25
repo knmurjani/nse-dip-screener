@@ -142,6 +142,17 @@ export default function BacktestTab() {
   // Form state — Bollinger MR-specific
   const [formTargetBandSigma, setFormTargetBandSigma] = useState("2");
   const [formAllowParallel, setFormAllowParallel] = useState(false);
+  // Form state — Configurable conditions (dropdowns)
+  const [formWatchlistCond, setFormWatchlistCond] = useState("below_-2s");
+  const [formEntryCond, setFormEntryCond] = useState(
+    strategyId === "bollinger_mr" ? "cross_above_mean" : "cross_above_-2s"
+  );
+  const [formExitTarget, setFormExitTarget] = useState(
+    strategyId === "bollinger_mr" ? "reach_+2s" : "reach_mean"
+  );
+  const [formExitStopBand, setFormExitStopBand] = useState(
+    strategyId === "bollinger_mr" ? "below_-2s" : "below_-3s"
+  );
 
   const isBollinger = strategyId === "bollinger_bounce" || strategyId === "bollinger_mr";
 
@@ -203,6 +214,12 @@ export default function BacktestTab() {
       if (strategyId === "bollinger_mr") {
         body.targetBandSigma = Number(formTargetBandSigma);
         body.allowParallelPositions = formAllowParallel;
+      }
+      if (isBollinger) {
+        body.watchlistCondition = formWatchlistCond;
+        body.entryCondition = formEntryCond;
+        body.exitTarget = formExitTarget;
+        body.exitStopBand = formExitStopBand;
       }
       const res = await apiRequest("POST", "/api/backtest/run", body);
       const result: BacktestResult = await res.json();
@@ -372,58 +389,89 @@ export default function BacktestTab() {
                 />
               </div>
             </div>
-            {/* Row 3: Bollinger-specific params */}
+            {/* Row 3: Bollinger params — MA + configurable conditions */}
             {isBollinger && (
+              <>
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 pt-2 border-t border-border">
                 <div>
                   <label className="text-[10px] text-muted-foreground block mb-1">MA Period</label>
                   <Input
                     type="number" value={formMaPeriod} onChange={e => setFormMaPeriod(e.target.value)}
-                    className="h-8 text-xs tabular-nums"
-                    data-testid="input-ma-period"
+                    className="h-8 text-xs tabular-nums" data-testid="input-ma-period"
                   />
                 </div>
                 <div>
-                  <label className="text-[10px] text-muted-foreground block mb-1">Entry/Watchlist σ</label>
-                  <Input
-                    type="number" value={formEntryBandSigma} onChange={e => setFormEntryBandSigma(e.target.value)}
-                    className="h-8 text-xs tabular-nums"
-                    data-testid="input-entry-band-sigma"
-                  />
+                  <label className="text-[10px] text-muted-foreground block mb-1">Watchlist Condition</label>
+                  <Select value={formWatchlistCond} onValueChange={setFormWatchlistCond}>
+                    <SelectTrigger className="h-8 text-xs" data-testid="select-watchlist-cond">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="below_-1s" className="text-xs">Below −1σ</SelectItem>
+                      <SelectItem value="below_-2s" className="text-xs">Below −2σ</SelectItem>
+                      <SelectItem value="below_-3s" className="text-xs">Below −3σ</SelectItem>
+                      <SelectItem value="below_mean" className="text-xs">Below Mean (20-DMA)</SelectItem>
+                    </SelectContent>
+                  </Select>
                 </div>
                 <div>
-                  <label className="text-[10px] text-muted-foreground block mb-1">Stop Loss σ</label>
-                  <Input
-                    type="number" value={formStopLossSigma} onChange={e => setFormStopLossSigma(e.target.value)}
-                    className="h-8 text-xs tabular-nums"
-                    data-testid="input-stop-loss-sigma"
-                  />
+                  <label className="text-[10px] text-muted-foreground block mb-1">Entry Condition</label>
+                  <Select value={formEntryCond} onValueChange={setFormEntryCond}>
+                    <SelectTrigger className="h-8 text-xs" data-testid="select-entry-cond">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="cross_above_-2s" className="text-xs">Cross above −2σ</SelectItem>
+                      <SelectItem value="cross_above_-1s" className="text-xs">Cross above −1σ</SelectItem>
+                      <SelectItem value="cross_above_mean" className="text-xs">Cross above Mean</SelectItem>
+                      <SelectItem value="cross_above_+1s" className="text-xs">Cross above +1σ</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div>
+                  <label className="text-[10px] text-muted-foreground block mb-1">Exit — Profit Target</label>
+                  <Select value={formExitTarget} onValueChange={setFormExitTarget}>
+                    <SelectTrigger className="h-8 text-xs" data-testid="select-exit-target">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="reach_mean" className="text-xs">Reach Mean (20-DMA)</SelectItem>
+                      <SelectItem value="reach_+1s" className="text-xs">Reach +1σ</SelectItem>
+                      <SelectItem value="reach_+2s" className="text-xs">Reach +2σ</SelectItem>
+                      <SelectItem value="reach_+3s" className="text-xs">Reach +3σ</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+              {/* Row 4: Exit stop + additional params */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                <div>
+                  <label className="text-[10px] text-muted-foreground block mb-1">Exit — Band Stop Loss</label>
+                  <Select value={formExitStopBand} onValueChange={setFormExitStopBand}>
+                    <SelectTrigger className="h-8 text-xs" data-testid="select-exit-stop">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="below_-2s" className="text-xs">Drop below −2σ</SelectItem>
+                      <SelectItem value="below_-3s" className="text-xs">Drop below −3σ</SelectItem>
+                      <SelectItem value="below_-4s" className="text-xs">Drop below −4σ</SelectItem>
+                    </SelectContent>
+                  </Select>
                 </div>
                 {strategyId === "bollinger_mr" && (
-                  <div>
-                    <label className="text-[10px] text-muted-foreground block mb-1">Target σ (exit)</label>
-                    <Input
-                      type="number" value={formTargetBandSigma} onChange={e => setFormTargetBandSigma(e.target.value)}
-                      className="h-8 text-xs tabular-nums"
-                      data-testid="input-target-band-sigma"
-                    />
+                  <div className="flex items-center pt-4">
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input
+                        type="checkbox" checked={formAllowParallel}
+                        onChange={e => setFormAllowParallel(e.target.checked)}
+                        className="h-4 w-4 rounded border-input accent-primary" data-testid="input-allow-parallel"
+                      />
+                      <span className="text-[10px] text-muted-foreground">Allow parallel positions</span>
+                    </label>
                   </div>
                 )}
               </div>
-            )}
-            {/* Row 4: MR-specific — parallel positions */}
-            {strategyId === "bollinger_mr" && (
-              <div className="flex items-center gap-3 pt-2 border-t border-border">
-                <label className="flex items-center gap-2 cursor-pointer">
-                  <input
-                    type="checkbox" checked={formAllowParallel}
-                    onChange={e => setFormAllowParallel(e.target.checked)}
-                    className="h-4 w-4 rounded border-input accent-primary"
-                    data-testid="input-allow-parallel"
-                  />
-                  <span className="text-[11px] text-muted-foreground">Allow parallel positions (same stock can have multiple open trades)</span>
-                </label>
-              </div>
+              </>
             )}
             {/* Actions */}
             <div className="flex items-center gap-3">

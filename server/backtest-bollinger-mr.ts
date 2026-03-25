@@ -95,11 +95,17 @@ export interface BollingerMRParams {
   fromDate?: string;
   toDate?: string;
   maPeriod?: number;           // default 20
+  // Configurable conditions (dropdown-driven)
+  watchlistCondition?: string; // "below_-2s" | "below_-1s" | "below_-3s" | "below_mean" (default: below_-2s)
+  entryCondition?: string;     // "cross_above_mean" | "cross_above_-2s" | "cross_above_-1s" | "cross_above_+1s" (default: cross_above_mean)
+  exitTarget?: string;         // "reach_+2s" | "reach_+1s" | "reach_+3s" | "reach_mean" (default: reach_+2s)
+  exitStopBand?: string;       // "below_-2s" | "below_-3s" | "below_-4s" (default: below_-2s)
+  // Legacy numeric params (used as fallback)
   entryBandSigma?: number;     // default 2 (watchlist below this)
   targetBandSigma?: number;    // default 2 (exit above +Nσ)
   stopLossSigma?: number;      // default 2 (exit below −Nσ)
   maxHoldDays?: number;        // default 0 = no time exit
-  allowParallelPositions?: boolean; // default false — if true, same ticker can have multiple open
+  allowParallelPositions?: boolean;
   absoluteStopPct?: number;
   trailingStopPct?: number;
 }
@@ -112,10 +118,46 @@ interface OpenPosition {
   portfolioValueAtEntry: number;
 }
 
+// Parse condition strings to sigma multipliers
+function parseWatchlistSigma(cond?: string, fallback?: number): { sigma: number; useMean: boolean } {
+  if (!cond) return { sigma: fallback || 2, useMean: false };
+  if (cond === "below_mean") return { sigma: 0, useMean: true };
+  const m = cond.match(/below_(-?\d+)s/);
+  return m ? { sigma: parseInt(m[1]), useMean: false } : { sigma: fallback || 2, useMean: false };
+}
+
+function parseEntrySigma(cond?: string): { sigma: number; useMean: boolean } {
+  if (!cond) return { sigma: 0, useMean: true }; // default: cross above mean
+  if (cond === "cross_above_mean") return { sigma: 0, useMean: true };
+  const m = cond.match(/cross_above_([+-]?\d+)s/);
+  return m ? { sigma: parseInt(m[1]), useMean: false } : { sigma: 0, useMean: true };
+}
+
+function parseExitTarget(cond?: string, fallback?: number): { sigma: number; useMean: boolean } {
+  if (!cond) return { sigma: fallback || 2, useMean: false };
+  if (cond === "reach_mean") return { sigma: 0, useMean: true };
+  const m = cond.match(/reach_([+-]?\d+)s/);
+  return m ? { sigma: parseInt(m[1]), useMean: false } : { sigma: fallback || 2, useMean: false };
+}
+
+function parseExitStop(cond?: string, fallback?: number): number {
+  if (!cond) return fallback || 2;
+  const m = cond.match(/below_(-?\d+)s/);
+  return m ? Math.abs(parseInt(m[1])) : fallback || 2;
+}
+
 export async function runBollingerMRBacktest(params: BollingerMRParams): Promise<BacktestResult> {
   const CAPITAL = params.capitalRs || 1000000;
   const MAX_POS = params.maxPositions || 10;
   const MA_PERIOD = params.maPeriod || 20;
+
+  // Parse configurable conditions
+  const watchlistCfg = parseWatchlistSigma(params.watchlistCondition, params.entryBandSigma);
+  const entryCfg = parseEntrySigma(params.entryCondition);
+  const exitTargetCfg = parseExitTarget(params.exitTarget, params.targetBandSigma);
+  const EXIT_STOP_SIGMA = parseExitStop(params.exitStopBand, params.stopLossSigma);
+
+  // Legacy fallbacks
   const ENTRY_SIGMA = params.entryBandSigma || 2;
   const TARGET_SIGMA = params.targetBandSigma || 2;
   const STOP_SIGMA = params.stopLossSigma || 2;
@@ -231,23 +273,25 @@ export async function runBollingerMRBacktest(params: BollingerMRParams): Promise
       let exitReason: Trade["exitReason"] | null = null;
       let exitDetail = "";
 
-      // Exit 1: Target — close > +Nσ upper band (Python: close > row['+2_std_dev'])
-      const upperBand = ma + TARGET_SIGMA * std;
-      if (bar.close > upperBand) {
-        exitPrice = upperBand;
+      // Exit 1: Profit target (configurable: mean, +1σ, +2σ, +3σ)
+      const targetLevel = exitTargetCfg.useMean ? ma : (ma + exitTargetCfg.sigma * std);
+      const targetLabel = exitTargetCfg.useMean ? "Mean" : `+${exitTargetCfg.sigma}σ`;
+      if (bar.close > targetLevel) {
+        exitPrice = targetLevel;
         exitReason = "profit_target";
-        exitDetail = `✅ +${TARGET_SIGMA}σ TARGET: Close ₹${bar.close.toFixed(2)} > +${TARGET_SIGMA}σ ₹${upperBand.toFixed(2)} — full mean reversion`;
+        exitDetail = `✅ ${targetLabel} TARGET: Close ₹${bar.close.toFixed(2)} > ${targetLabel} ₹${targetLevel.toFixed(2)}`;
       }
 
-      // Exit 2: Stop — close < −Nσ lower band (Python: close < row['-2_std_dev'])
+      // Exit 2: Band stop loss (configurable: -2σ, -3σ, -4σ)
       if (!exitReason) {
-        const lowerBand = ma - STOP_SIGMA * std;
-        if (bar.close < lowerBand) {
-          exitPrice = lowerBand;
+        const stopLevel = ma - EXIT_STOP_SIGMA * std;
+        if (bar.close < stopLevel) {
+          exitPrice = stopLevel;
           exitReason = "price_action_close_above_prev_high";
-          exitDetail = `🛑 −${STOP_SIGMA}σ STOP: Close ₹${bar.close.toFixed(2)} < −${STOP_SIGMA}σ ₹${lowerBand.toFixed(2)} — cut loss`;
+          exitDetail = `🛑 −${EXIT_STOP_SIGMA}σ STOP: Close ₹${bar.close.toFixed(2)} < −${EXIT_STOP_SIGMA}σ ₹${stopLevel.toFixed(2)}`;
         }
       }
+      const upperBand = exitTargetCfg.useMean ? ma : (ma + exitTargetCfg.sigma * std);
 
       // Exit 3: Absolute stop (if configured)
       if (!exitReason && ABS_STOP) {
@@ -319,24 +363,24 @@ export async function runBollingerMRBacktest(params: BollingerMRParams): Promise
         const std = computeStdDev(bars, tIdx, MA_PERIOD);
         if (ma === 0 || std === 0) continue;
 
-        const lowerBand = ma - ENTRY_SIGMA * std;
+        // Watchlist threshold: configurable (below -Nσ or below mean)
+        const watchlistThreshold = watchlistCfg.useMean ? ma : (ma - watchlistCfg.sigma * std);
+        // Entry threshold: configurable (cross above mean or cross above ±Nσ)
+        const entryThreshold = entryCfg.useMean ? ma : (ma + entryCfg.sigma * std);
 
-        // Phase 1: Add to watchlist if close < −2σ (Python: close_price < row['-2_std_dev'])
-        if (!watchlist.has(symbol) && bar.close < lowerBand) {
-          // Don't add if already holding this symbol (unless parallel allowed)
+        // Phase 1: Add to watchlist if close < watchlist threshold
+        if (!watchlist.has(symbol) && bar.close < watchlistThreshold) {
           if (!ALLOW_PARALLEL && openPositions.some(p => p.symbol === symbol)) continue;
           watchlist.add(symbol);
           continue;
         }
 
-        // Phase 2: Entry — on watchlist AND close crosses above mean
-        // Python: close_price > row['20_day_moving_average']
-        if (watchlist.has(symbol) && bar.close > ma && openPositions.length < MAX_POS) {
-          // Check if already holding (unless parallel allowed)
+        // Phase 2: Entry — on watchlist AND close crosses above entry threshold
+        if (watchlist.has(symbol) && bar.close > entryThreshold && openPositions.length < MAX_POS) {
           if (!ALLOW_PARALLEL && openPositions.some(p => p.symbol === symbol)) continue;
 
-          // Entry price = the 20-DMA (mean), matching Python: entry_price = row['20_day_moving_average']
-          const entryPrice = ma;
+          // Entry price = the threshold value (mean or band level)
+          const entryPrice = entryThreshold;
           const shares = Math.floor(POSITION_SIZE / entryPrice);
           if (shares <= 0 || cash < shares * entryPrice) continue;
 

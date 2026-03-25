@@ -82,14 +82,19 @@ export interface BollingerBacktestParams {
   capitalRs?: number;
   maxPositions?: number;
   lookbackYears?: number;
-  fromDate?: string;         // YYYY-MM-DD, takes precedence over lookbackYears
-  toDate?: string;           // YYYY-MM-DD, defaults to today
+  fromDate?: string;
+  toDate?: string;
   maPeriod?: number;        // default 20
   entryBandSigma?: number;  // default 2
   stopLossSigma?: number;   // default 3
   maxHoldDays?: number;     // default 10
-  absoluteStopPct?: number; // optional: e.g., 5 means -5% absolute stop
-  trailingStopPct?: number; // optional: e.g., 3 means -3% trailing from peak
+  absoluteStopPct?: number;
+  trailingStopPct?: number;
+  // Configurable conditions (same as bollinger_mr)
+  watchlistCondition?: string;
+  entryCondition?: string;
+  exitTarget?: string;
+  exitStopBand?: string;
 }
 
 interface OpenPosition {
