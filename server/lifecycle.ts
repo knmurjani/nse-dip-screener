@@ -20,6 +20,39 @@ import {
   sendRiskAlert, sendSystemAlert,
 } from "./telegram";
 
+// ─── Order Retry with Exponential Backoff ───
+
+const MAX_RETRIES = 3;
+const RETRY_DELAYS = [1000, 2000, 4000]; // exponential backoff in ms
+
+async function placeKiteOrderWithRetry(
+  kite: any,
+  orderParams: any,
+  retries: number = MAX_RETRIES
+): Promise<{ order_id: string } | null> {
+  for (let attempt = 0; attempt < retries; attempt++) {
+    try {
+      const response = await kite.placeOrder("regular", orderParams);
+      return response;
+    } catch (err: any) {
+      const isRetryable =
+        err.message?.includes("NetworkError") ||
+        err.message?.includes("ETIMEDOUT") ||
+        err.message?.includes("ECONNRESET") ||
+        err.message?.includes("Too many requests") ||
+        err.status === 429 ||
+        err.status === 503;
+
+      if (!isRetryable || attempt === retries - 1) throw err;
+
+      console.log(`[Lifecycle] Order attempt ${attempt + 1} failed: ${err.message}, retrying in ${RETRY_DELAYS[attempt]}ms...`);
+      logSystem("lifecycle", "order_retry", `${orderParams.tradingsymbol}: attempt ${attempt + 1} failed, retrying`);
+      await new Promise(r => setTimeout(r, RETRY_DELAYS[attempt]));
+    }
+  }
+  return null;
+}
+
 // ─── Types ───
 
 export interface LifecycleResult {
@@ -435,7 +468,7 @@ export async function runDeploymentLifecycle(deploymentId: number): Promise<Life
               price: Math.round(entryPrice * 100) / 100,
             };
 
-            const kiteResponse = await kite.placeOrder("regular", orderParams);
+            const kiteResponse = await placeKiteOrderWithRetry(kite, orderParams);
             const kiteOrderId = kiteResponse?.order_id || null;
 
             // Log order as PLACED
@@ -578,10 +611,6 @@ export async function runEndOfDaySummary(deploymentId: number): Promise<void> {
     const maxDrawdown = Math.max(drawdownPct, ...allSnapshots.map((s: any) => s.drawdown_pct || 0));
     sqliteDb.prepare("UPDATE deployments SET max_drawdown_pct = ?, unrealized_pnl = ? WHERE id = ?")
       .run(Math.round(maxDrawdown * 100) / 100, Math.round(unrealizedPnl), deploymentId);
-
-    result: {
-      snapshotTaken: true;
-    }
 
     // Check drawdown alert
     try { await checkDrawdownAlert(deploymentId); } catch {}

@@ -1,5 +1,6 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
+import crypto from "crypto";
 import { runScreener, clearCache } from "./screener";
 import { startScheduler } from "./scheduler";
 import { getLoginURL, generateSession, setAccessToken, isAuthenticated, getKite, getKiteStatus, markKiteFailed } from "./kite";
@@ -119,6 +120,23 @@ export async function registerRoutes(
 
       console.log(`[Postback] ${tradingsymbol} ${transactionType} — ${kiteStatus} | Kite ID: ${kiteOrderId} | Filled: ${filledQty} @ ₹${averagePrice}`);
       logSystem("postback", "received", `${tradingsymbol} ${transactionType} ${kiteStatus} | Order: ${kiteOrderId} | Filled: ${filledQty} @ ₹${averagePrice}`);
+
+      // Validate checksum if present
+      const KITE_API_SECRET = process.env.KITE_API_SECRET || "6cphs32h6vyjp5q287u7tst2zsyr1hu1";
+      const receivedChecksum = req.headers["x-kite-checksum"] as string;
+      if (receivedChecksum) {
+        const rawBody = (req as any).rawBody as string;
+        const expectedChecksum = crypto
+          .createHash("sha256")
+          .update(rawBody + KITE_API_SECRET)
+          .digest("hex");
+        if (receivedChecksum !== expectedChecksum) {
+          console.error(`[Postback] Checksum mismatch: received=${receivedChecksum}, expected=${expectedChecksum}`);
+          logSystem("postback", "checksum_failed", `Checksum mismatch for ${tradingsymbol} ${kiteOrderId}`);
+          res.status(403).json({ ok: false, error: "Checksum validation failed" });
+          return;
+        }
+      }
 
       if (!kiteOrderId) {
         res.json({ ok: true, message: "No order_id, ignored" });
@@ -963,6 +981,43 @@ export async function registerRoutes(
       res.json(getOrder(orderId));
     } catch (error: any) {
       res.status(500).json({ error: error.message });
+    }
+  });
+
+  // ─── Order Retry ───
+
+  app.post("/api/orders/:orderId/retry", async (req, res) => {
+    const orderId = parseInt(req.params.orderId);
+    const order = getOrder(orderId);
+    if (!order) return res.status(404).json({ error: "Order not found" });
+    if (order.status !== "FAILED" && order.status !== "REJECTED") {
+      return res.status(400).json({ error: "Can only retry FAILED or REJECTED orders" });
+    }
+    if (!isAuthenticated()) {
+      return res.status(400).json({ error: "Kite not connected" });
+    }
+    try {
+      const kite = getKite();
+      const response = await kite.placeOrder("regular", {
+        exchange: order.exchange || "NSE",
+        tradingsymbol: order.symbol,
+        transaction_type: order.transaction_type,
+        quantity: order.quantity,
+        product: "CNC",
+        order_type: order.order_type,
+        price: order.price,
+      });
+      const kiteOrderId = response?.order_id || null;
+      updateOrderStatus(orderId, {
+        status: "PLACED",
+        kite_order_id: kiteOrderId,
+        error_message: undefined,
+      });
+      logSystem("orders", "retry_placed", `Order #${orderId} ${order.symbol}: retried, new Kite ID ${kiteOrderId}`);
+      res.json(getOrder(orderId));
+    } catch (err: any) {
+      updateOrderStatus(orderId, { status: "FAILED", error_message: `Retry failed: ${err.message}` });
+      res.status(500).json({ error: `Retry failed: ${err.message}` });
     }
   });
 

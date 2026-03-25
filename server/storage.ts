@@ -165,7 +165,7 @@ export function setConfig(key: string, value: string) {
 // ─── System Log ───
 
 export function logSystem(category: string, action: string, details?: string) {
-  const timestamp = new Date().toISOString();
+  const timestamp = istNow();
   sqlite.prepare("INSERT INTO system_log (timestamp, category, action, details) VALUES (?, ?, ?, ?)")
     .run(timestamp, category, action, details || null);
 }
@@ -441,6 +441,10 @@ sqlite.exec(`
     updated_at TEXT NOT NULL,
     FOREIGN KEY (deployment_id) REFERENCES deployments(id)
   );
+  CREATE INDEX IF NOT EXISTS idx_orders_kite_id ON orders_log(kite_order_id);
+  CREATE INDEX IF NOT EXISTS idx_orders_deployment ON orders_log(deployment_id, status);
+  CREATE INDEX IF NOT EXISTS idx_positions_deployment ON deployment_positions(deployment_id, symbol);
+  CREATE INDEX IF NOT EXISTS idx_snapshots_deployment_date ON deployment_snapshots(deployment_id, date);
 `);
 
 // ─── IST Helper ───

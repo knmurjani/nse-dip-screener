@@ -20,7 +20,7 @@ import {
   Rocket, Briefcase, History, Plus, Minus, Settings, Pause, Play, Square,
   TrendingUp, TrendingDown, ArrowUpDown, ArrowUp, ArrowDown,
   Wallet, BarChart3, AlertTriangle, DollarSign, Percent,
-  FileText, ChevronDown, ClipboardList,
+  FileText, ChevronDown, ClipboardList, RotateCw,
 } from "lucide-react";
 import { useStrategy } from "@/lib/strategy-context";
 import { useToast } from "@/hooks/use-toast";
@@ -1067,6 +1067,25 @@ function orderStatusBadge(status: string): { cls: string } {
 function OrdersTable({ orders }: { orders: OrderLog[] }) {
   const [sortField, setSortField] = useState<string>("placed_at");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
+  const [retryingId, setRetryingId] = useState<number | null>(null);
+  const { toast } = useToast();
+
+  const handleRetry = async (orderId: number) => {
+    setRetryingId(orderId);
+    try {
+      const res = await apiRequest("POST", `/api/orders/${orderId}/retry`);
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.error || "Retry failed");
+      }
+      toast({ title: "Order retried", description: "Order has been re-submitted to Kite" });
+      queryClient.invalidateQueries();
+    } catch (err: any) {
+      toast({ title: "Retry failed", description: err.message, variant: "destructive" });
+    } finally {
+      setRetryingId(null);
+    }
+  };
 
   const handleSort = (field: string) => {
     if (sortField === field) setSortDir(sortDir === "asc" ? "desc" : "asc");
@@ -1109,6 +1128,7 @@ function OrdersTable({ orders }: { orders: OrderLog[] }) {
                 <TableHead className="text-[11px] text-right">Fill Price</TableHead>
                 <SortHead label="Status" field="status" current={sortField} dir={sortDir} onClick={() => handleSort("status")} align="right" />
                 <TableHead className="text-[11px] text-right">Kite ID</TableHead>
+                <TableHead className="text-[11px] text-right">Actions</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -1138,8 +1158,22 @@ function OrdersTable({ orders }: { orders: OrderLog[] }) {
                       {o.status}
                     </Badge>
                   </TableCell>
-                  <TableCell className="text-right text-xs tabular-nums text-muted-foreground py-2 pr-4">
+                  <TableCell className="text-right text-xs tabular-nums text-muted-foreground py-2">
                     {o.kite_order_id || "—"}
+                  </TableCell>
+                  <TableCell className="text-right py-2 pr-4">
+                    {(o.status === "FAILED" || o.status === "REJECTED") && (
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-6 px-2 text-[10px]"
+                        disabled={retryingId === o.id}
+                        onClick={() => handleRetry(o.id)}
+                      >
+                        <RotateCw className={`w-3 h-3 mr-1 ${retryingId === o.id ? "animate-spin" : ""}`} />
+                        Retry
+                      </Button>
+                    )}
                   </TableCell>
                 </TableRow>
               ))}
