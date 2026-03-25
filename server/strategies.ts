@@ -69,8 +69,8 @@ export const STRATEGIES: Record<string, StrategyDefinition> = {
 
   bollinger_mr: {
     id: "bollinger_mr",
-    name: "Bollinger Mean Reversion",
-    shortName: "Boll MR",
+    name: "Bollinger −2σ to +2σ",
+    shortName: "Boll −2σ→+2σ",
     description: "Classic Bollinger Band mean-reversion. Watchlist below −2σ, enter when price crosses above the 20-DMA (mean), exit at +2σ target or −2σ stop. No compounding — fixed position sizing.",
     entryRules: [
       "Calculate 20-day moving average and standard deviation",

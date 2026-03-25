@@ -499,7 +499,7 @@ export default function BacktestTab() {
                         </TableCell>
                         <TableCell className="py-2">
                           <Badge variant="outline" className="text-[10px]" data-testid={`strategy-badge-${i}`}>
-                            {r.strategy_id === "bollinger_mr" ? "Boll MR" : r.strategy_id === "bollinger_bounce" ? "Bollinger" : "ATR Dip"}
+                            {r.strategy_id === "bollinger_mr" ? "−2σ→+2σ" : r.strategy_id === "bollinger_bounce" ? "Bollinger" : "ATR Dip"}
                           </Badge>
                         </TableCell>
                         <TableCell className="text-[11px] tabular-nums text-muted-foreground py-2">
@@ -801,7 +801,7 @@ export default function BacktestTab() {
                       <SortHead label="P&L %" field="pnlPct" current={sortField} dir={sortDir} onClick={() => handleSort("pnlPct")} align="right" />
                       <SortHead label="Days" field="daysHeld" current={sortField} dir={sortDir} onClick={() => handleSort("daysHeld")} align="right" />
                       <SortHead label="Exit Reason" field="exitReason" current={sortField} dir={sortDir} onClick={() => handleSort("exitReason")} align="right" />
-                      {strategyId === "bollinger_bounce" || strategyId === "bollinger_mr" && (
+                      {(strategyId === "bollinger_bounce" || strategyId === "bollinger_mr") && (
                         <TableHead className="text-[11px] text-center w-10">Chart</TableHead>
                       )}
                     </TableRow>
@@ -866,7 +866,7 @@ export default function BacktestTab() {
                             </p>
                           )}
                         </TableCell>
-                        {strategyId === "bollinger_bounce" || strategyId === "bollinger_mr" && (
+                        {(strategyId === "bollinger_bounce" || strategyId === "bollinger_mr") && (
                           <TableCell className="text-center py-2">
                             <button
                               className={`p-1 rounded hover:bg-muted/50 transition-colors ${
@@ -882,7 +882,7 @@ export default function BacktestTab() {
                         )}
                       </TableRow>
                       {/* Expanded Bollinger chart row */}
-                      {chartRow === i && strategyId === "bollinger_bounce" || strategyId === "bollinger_mr" && (
+                      {chartRow === i && (strategyId === "bollinger_bounce" || strategyId === "bollinger_mr") && (
                         <TableRow key={`chart-${t.id ?? i}`} data-testid={`chart-row-${i}`}>
                           <TableCell colSpan={11} className="p-0 bg-muted/10">
                             <BollingerTradeChart
