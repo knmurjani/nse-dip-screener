@@ -93,7 +93,7 @@ export interface BollingerBacktestParams {
   watchlistCondition?: string;
   entryCondition?: string;
   exitTarget?: string;
-  exitStopBand?: string;    // "none" | "below_-2s" | "below_-3s" | "below_-4s" (default: none)
+  exitStopBand?: string;    // "none" | "below_-1s" | "below_-1.5s" | ... | "below_-4s" (default: none)
   universeOverride?: typeof NSE_UNIVERSE; // optional filtered universe
   benchmarkTicker?: string; // Yahoo Finance ticker for benchmark (default: ^NSEI)
   benchmarkLabel?: string;  // Human-readable benchmark name
@@ -115,7 +115,7 @@ export async function runBollingerBacktest(params: BollingerBacktestParams): Pro
   const ENTRY_SIGMA = params.entryBandSigma || 2;
   // Band stop loss: parse from dropdown or legacy numeric param; 0 = disabled
   const STOP_SIGMA = (params.exitStopBand && params.exitStopBand !== "none")
-    ? Math.abs(parseInt(params.exitStopBand.match(/below_(-?\d+)s/)?.[1] || "0"))
+    ? Math.abs(parseFloat(params.exitStopBand.match(/below_(-?[\d.]+)s/)?.[1] || "0"))
     : (params.stopLossSigma || 0);
   const MAX_HOLD = params.maxHoldDays || 0; // 0 = no time exit by default
   const ABS_STOP = params.absoluteStopPct; // undefined = disabled

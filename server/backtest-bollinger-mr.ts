@@ -98,7 +98,7 @@ export interface BollingerMRParams {
   watchlistCondition?: string; // "below_-2s" | "below_-1s" | "below_-3s" | "below_mean" (default: below_-2s)
   entryCondition?: string;     // "cross_above_mean" | "cross_above_-2s" | "cross_above_-1s" | "cross_above_+1s" (default: cross_above_mean)
   exitTarget?: string;         // "reach_+2s" | "reach_+1s" | "reach_+3s" | "reach_mean" (default: reach_+2s)
-  exitStopBand?: string;       // "none" | "below_-2s" | "below_-3s" | "below_-4s" (default: none)
+  exitStopBand?: string;       // "none" | "below_-1s" | "below_-1.5s" | ... | "below_-4s" (default: none)
   // Legacy numeric params (used as fallback)
   entryBandSigma?: number;     // default 2 (watchlist below this)
   targetBandSigma?: number;    // default 2 (exit above +Nσ)
@@ -147,8 +147,8 @@ function parseExitTarget(cond?: string, fallback?: number): { sigma: number; use
 
 function parseExitStop(cond?: string, fallback?: number): number {
   if (!cond || cond === "none") return fallback || 0;
-  const m = cond.match(/below_(-?\d+)s/);
-  return m ? Math.abs(parseInt(m[1])) : fallback || 0;
+  const m = cond.match(/below_(-?[\d.]+)s/);
+  return m ? Math.abs(parseFloat(m[1])) : fallback || 0;
 }
 
 export async function runBollingerMRBacktest(params: BollingerMRParams): Promise<BacktestResult> {

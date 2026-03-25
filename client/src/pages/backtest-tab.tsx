@@ -540,8 +540,12 @@ export default function BacktestTab() {
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="none" className="text-xs">None</SelectItem>
+                      <SelectItem value="below_-1s" className="text-xs">Drop below −1σ</SelectItem>
+                      <SelectItem value="below_-1.5s" className="text-xs">Drop below −1.5σ</SelectItem>
                       <SelectItem value="below_-2s" className="text-xs">Drop below −2σ</SelectItem>
+                      <SelectItem value="below_-2.5s" className="text-xs">Drop below −2.5σ</SelectItem>
                       <SelectItem value="below_-3s" className="text-xs">Drop below −3σ</SelectItem>
+                      <SelectItem value="below_-3.5s" className="text-xs">Drop below −3.5σ</SelectItem>
                       <SelectItem value="below_-4s" className="text-xs">Drop below −4σ</SelectItem>
                     </SelectContent>
                   </Select>

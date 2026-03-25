@@ -668,8 +668,12 @@ function DeployFormModal({ open, onClose, defaultStrategy, cloneFrom }: {
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="none" className="text-xs">None</SelectItem>
+                      <SelectItem value="1" className="text-xs">−1σ</SelectItem>
+                      <SelectItem value="1.5" className="text-xs">−1.5σ</SelectItem>
                       <SelectItem value="2" className="text-xs">−2σ</SelectItem>
+                      <SelectItem value="2.5" className="text-xs">−2.5σ</SelectItem>
                       <SelectItem value="3" className="text-xs">−3σ</SelectItem>
+                      <SelectItem value="3.5" className="text-xs">−3.5σ</SelectItem>
                       <SelectItem value="4" className="text-xs">−4σ</SelectItem>
                     </SelectContent>
                   </Select>
@@ -1771,8 +1775,12 @@ function SettingsModal({ open, onClose, deployment }: {
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="none" className="text-xs">None</SelectItem>
+                      <SelectItem value="1" className="text-xs">−1σ</SelectItem>
+                      <SelectItem value="1.5" className="text-xs">−1.5σ</SelectItem>
                       <SelectItem value="2" className="text-xs">−2σ</SelectItem>
+                      <SelectItem value="2.5" className="text-xs">−2.5σ</SelectItem>
                       <SelectItem value="3" className="text-xs">−3σ</SelectItem>
+                      <SelectItem value="3.5" className="text-xs">−3.5σ</SelectItem>
                       <SelectItem value="4" className="text-xs">−4σ</SelectItem>
                     </SelectContent>
                   </Select>

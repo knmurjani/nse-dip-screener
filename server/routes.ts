@@ -459,11 +459,11 @@ export async function registerRoutes(
       const strategyDef = getStrategy(strategy);
       // Build human-readable rule descriptions for this specific run
       const condLabels: Record<string, string> = {
-        "below_-1s": "Below −1σ", "below_-2s": "Below −2σ", "below_-3s": "Below −3σ", "below_-4s": "Below −4σ", "below_mean": "Below Mean (20-DMA)",
+        "below_-1s": "Below −1σ", "below_-1.5s": "Below −1.5σ", "below_-2s": "Below −2σ", "below_-2.5s": "Below −2.5σ", "below_-3s": "Below −3σ", "below_-3.5s": "Below −3.5σ", "below_-4s": "Below −4σ", "below_mean": "Below Mean (20-DMA)",
         "cross_above_-2s": "Cross above −2σ", "cross_above_-1s": "Cross above −1σ",
         "cross_above_mean": "Cross above Mean (20-DMA)", "cross_above_+1s": "Cross above +1σ",
         "reach_mean": "Reach Mean (20-DMA)", "reach_+1s": "Reach +1σ", "reach_+2s": "Reach +2σ", "reach_+3s": "Reach +3σ",
-        "below_-2s_stop": "Drop below −2σ", "below_-3s_stop": "Drop below −3σ", "below_-4s_stop": "Drop below −4σ",
+        "below_-1s_stop": "Drop below −1σ", "below_-1.5s_stop": "Drop below −1.5σ", "below_-2s_stop": "Drop below −2σ", "below_-2.5s_stop": "Drop below −2.5σ", "below_-3s_stop": "Drop below −3σ", "below_-3.5s_stop": "Drop below −3.5σ", "below_-4s_stop": "Drop below −4σ",
       };
 
       // Build comprehensive rules template
