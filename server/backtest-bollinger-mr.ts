@@ -388,10 +388,16 @@ export async function runBollingerMRBacktest(params: BollingerMRParams): Promise
         const wasBelowYesterday = prevBar.close < prevEntryThreshold;
         const isAboveToday = bar.close > entryThreshold;
 
-        if (wasBelowYesterday && isAboveToday) {
-          if (!ALLOW_PARALLEL && openPositions.some(p => p.symbol === symbol)) continue;
+        // Entry triggers when close crosses above the entry threshold
+        // This can be a sharp crossover OR a gradual recovery — either way,
+        // the first day close is above the threshold triggers entry
+        if (isAboveToday) {
+          if (!ALLOW_PARALLEL && openPositions.some(p => p.symbol === symbol)) {
+            watchlist.delete(symbol);
+            continue;
+          }
 
-          // Entry price = the CLOSE price (actual market price, not the band level)
+          // Entry price = the CLOSE price (actual market price)
           const entryPrice = bar.close;
           const shares = Math.floor(POSITION_SIZE / entryPrice);
           if (shares <= 0 || cash < shares * entryPrice) continue;
@@ -411,12 +417,8 @@ export async function runBollingerMRBacktest(params: BollingerMRParams): Promise
           });
 
           watchlist.delete(symbol);
-        } else if (isAboveToday) {
-          // Price is above entry threshold but no crossover happened (was already above yesterday)
-          // Remove from watchlist — the dip opportunity has passed without a clean crossover
-          watchlist.delete(symbol);
         }
-        // If still below entry threshold, keep on watchlist and wait
+        // If still below entry threshold, keep on watchlist and wait for crossover
       }
     }
 
