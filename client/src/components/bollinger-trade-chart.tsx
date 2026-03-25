@@ -215,7 +215,7 @@ export default function BollingerTradeChart({ symbol, entryDate, exitDate, entry
           {!isATR && (
             <>
               <span className="flex items-center gap-1">
-                <span className="w-3 h-[2px] bg-[#9ca3af] inline-block rounded" /> 20-DMA
+                <span className="w-3 h-[2px] bg-[#60a5fa] inline-block rounded" /> 20-DMA
               </span>
               <span className="flex items-center gap-1">
                 <span className="w-3 h-[1px] inline-block" style={{ borderTop: "1px dashed #22c55e" }} /> +2σ
@@ -301,10 +301,10 @@ export default function BollingerTradeChart({ symbol, entryDate, exitDate, entry
                 dot={false} name="stopBand" isAnimationActive={false}
               />
 
-              {/* 20-DMA (mean) — neutral gray */}
+              {/* 20-DMA (mean) — blue */}
               <Line
                 type="monotone" dataKey="ma"
-                stroke="#9ca3af" strokeWidth={1.5}
+                stroke="#60a5fa" strokeWidth={1.5}
                 dot={false} name="ma" isAnimationActive={false}
               />
             </>

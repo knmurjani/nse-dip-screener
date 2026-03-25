@@ -3,7 +3,7 @@
  * ─────────────────────────────────────────
  * Matches the original Python strategy exactly:
  *   Watchlist: close < −2σ
- *   Entry:    close crosses above 20-DMA (mean) → buy at the 20-DMA price
+ *   Entry:    close crosses above −2σ band (configurable) → buy at close price
  *   Exit:     close > +2σ (target) OR close < −2σ (stop loss)
  *   Sizing:   fixed (capital / maxPositions), no compounding
  *   Parallel: configurable — same ticker CAN have multiple open positions
@@ -130,12 +130,12 @@ function parseWatchlistSigma(cond?: string, fallback?: number): { sigma: number;
 }
 
 function parseEntrySigma(cond?: string): { sigma: number; useMean: boolean } {
-  if (!cond) return { sigma: 0, useMean: true }; // default: cross above mean
+  if (!cond) return { sigma: -2, useMean: false }; // default: cross above −2σ band
   if (cond === "cross_above_mean") return { sigma: 0, useMean: true };
   const m = cond.match(/cross_above_([+-]?\d+)s/);
   // Sigma is negative for below-mean bands (e.g., -2 means the -2σ band)
   // The formula uses ma + sigma * std, so -2 gives ma - 2*std = -2σ band (correct)
-  return m ? { sigma: parseInt(m[1]), useMean: false } : { sigma: 0, useMean: true };
+  return m ? { sigma: parseInt(m[1]), useMean: false } : { sigma: -2, useMean: false };
 }
 
 function parseExitTarget(cond?: string, fallback?: number): { sigma: number; useMean: boolean } {
