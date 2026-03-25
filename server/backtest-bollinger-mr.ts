@@ -396,9 +396,10 @@ export async function runBollingerMRBacktest(params: BollingerMRParams): Promise
         const isAboveToday = bar.close > entryThreshold;
 
         // Entry triggers when close crosses above the entry threshold
-        // This can be a sharp crossover OR a gradual recovery — either way,
-        // the first day close is above the threshold triggers entry
-        if (isAboveToday) {
+        // Guard: don't enter if price is already above the exit target (would exit immediately at a loss)
+        const targetLevel = exitTargetCfg.useMean ? ma : (ma + exitTargetCfg.sigma * std);
+        const isAlreadyAboveTarget = bar.close > targetLevel;
+        if (isAboveToday && !isAlreadyAboveTarget) {
           if (!ALLOW_PARALLEL && openPositions.some(p => p.symbol === symbol)) {
             watchlist.delete(symbol);
             continue;
@@ -410,7 +411,7 @@ export async function runBollingerMRBacktest(params: BollingerMRParams): Promise
           if (shares <= 0 || cash < shares * entryPrice) continue;
 
           cash -= shares * entryPrice;
-          const targetLevel = exitTargetCfg.useMean ? ma : (ma + exitTargetCfg.sigma * std);
+          // targetLevel already computed above (for the guard check)
           const distToTarget = ((targetLevel - entryPrice) / entryPrice) * 100;
 
           openPositions.push({
