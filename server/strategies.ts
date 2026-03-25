@@ -56,6 +56,7 @@ export const STRATEGIES: Record<string, StrategyDefinition> = {
     ],
     exitRules: [
       { name: "Profit Target", description: "Configurable: reach mean, +1σ, +2σ, or +3σ" },
+      { name: "Band Stop", description: "Optional: drop below −2σ, −3σ, or −4σ (default: None)" },
       { name: "Absolute Stop", description: "Optional: fixed % loss from entry price" },
       { name: "Trailing Stop", description: "Optional: fixed % drop from peak price" },
       { name: "Time Exit", description: "Optional: max trading days (leave blank for no limit)" },
@@ -65,6 +66,7 @@ export const STRATEGIES: Record<string, StrategyDefinition> = {
       watchlistCondition: "below_-2s",
       entryCondition: "cross_above_-2s",
       exitTarget: "reach_mean",
+      exitStopBand: "none",
       maxHoldDays: 0,
     },
   },

@@ -85,6 +85,7 @@ export interface BollingerBacktestParams {
   toDate?: string;
   maPeriod?: number;        // default 20
   entryBandSigma?: number;  // default 2
+  stopLossSigma?: number;   // default 0 = no band stop
   maxHoldDays?: number;     // default 10
   absoluteStopPct?: number;
   trailingStopPct?: number;
@@ -92,6 +93,7 @@ export interface BollingerBacktestParams {
   watchlistCondition?: string;
   entryCondition?: string;
   exitTarget?: string;
+  exitStopBand?: string;    // "none" | "below_-2s" | "below_-3s" | "below_-4s" (default: none)
   universeOverride?: typeof NSE_UNIVERSE; // optional filtered universe
   benchmarkTicker?: string; // Yahoo Finance ticker for benchmark (default: ^NSEI)
   benchmarkLabel?: string;  // Human-readable benchmark name
@@ -111,6 +113,10 @@ export async function runBollingerBacktest(params: BollingerBacktestParams): Pro
   const MAX_POS = params.maxPositions || 10;
   const MA_PERIOD = params.maPeriod || 20;
   const ENTRY_SIGMA = params.entryBandSigma || 2;
+  // Band stop loss: parse from dropdown or legacy numeric param; 0 = disabled
+  const STOP_SIGMA = (params.exitStopBand && params.exitStopBand !== "none")
+    ? Math.abs(parseInt(params.exitStopBand.match(/below_(-?\d+)s/)?.[1] || "0"))
+    : (params.stopLossSigma || 0);
   const MAX_HOLD = params.maxHoldDays || 0; // 0 = no time exit by default
   const ABS_STOP = params.absoluteStopPct; // undefined = disabled
   const TRAIL_STOP = params.trailingStopPct; // undefined = disabled
@@ -137,7 +143,7 @@ export async function runBollingerBacktest(params: BollingerBacktestParams): Pro
 
   const yearsLabel = ((toDate.getTime() - backtestStart.getTime()) / (365.25 * 86400000)).toFixed(1);
   const useKite = isAuthenticated();
-  console.log(`[BollingerBT] ${yearsLabel}yr (${startStr} → ${to}), ₹${(CAPITAL/1e5).toFixed(0)}L, ${MAX_POS} pos, ${MA_PERIOD}MA, ±${ENTRY_SIGMA}σ entry`);
+  console.log(`[BollingerBT] ${yearsLabel}yr (${startStr} → ${to}), ₹${(CAPITAL/1e5).toFixed(0)}L, ${MAX_POS} pos, ${MA_PERIOD}MA, ±${ENTRY_SIGMA}σ entry${STOP_SIGMA ? `, band stop -${STOP_SIGMA}σ` : ''}`);
 
   // Fetch benchmark
   const bmTicker = params.benchmarkTicker || "^NSEI";
@@ -230,7 +236,17 @@ export async function runBollingerBacktest(params: BollingerBacktestParams): Pro
         exitDetail = `✅ +${ENTRY_SIGMA}σ TARGET: Close ₹${bar.close.toFixed(2)} ≥ +${ENTRY_SIGMA}σ ₹${upperBand.toFixed(2)} — mean reversion complete`;
       }
 
-      // Exit 2: Absolute stop loss (if configured)
+      // Exit 2: Band stop loss (configurable: -2σ, -3σ, -4σ — only if enabled)
+      if (!exitReason && STOP_SIGMA > 0) {
+        const stopBand = ma - STOP_SIGMA * stdExit;
+        if (bar.close < stopBand) {
+          exitPrice = bar.close;
+          exitReason = "price_action_close_above_prev_high";
+          exitDetail = `🛑 −${STOP_SIGMA}σ STOP: Close ₹${bar.close.toFixed(2)} < −${STOP_SIGMA}σ band ₹${stopBand.toFixed(2)} — extreme deviation, cut loss`;
+        }
+      }
+
+      // Exit 3: Absolute stop loss (if configured)
       if (!exitReason && ABS_STOP) {
         const absStopPrice = pos.entryPrice * (1 - ABS_STOP / 100);
         if (bar.low <= absStopPrice) {
@@ -240,7 +256,7 @@ export async function runBollingerBacktest(params: BollingerBacktestParams): Pro
         }
       }
 
-      // Exit 3: Trailing stop (if configured)
+      // Exit 4: Trailing stop (if configured)
       if (!exitReason && TRAIL_STOP) {
         const trailStopPrice = pos.peakPrice * (1 - TRAIL_STOP / 100);
         if (bar.low <= trailStopPrice) {
@@ -250,7 +266,7 @@ export async function runBollingerBacktest(params: BollingerBacktestParams): Pro
         }
       }
 
-      // Exit 4: Time exit (only if MAX_HOLD > 0)
+      // Exit 5: Time exit (only if MAX_HOLD > 0)
       if (!exitReason && MAX_HOLD > 0 && pos.tradingDaysHeld >= MAX_HOLD) {
         exitPrice = bar.close;
         exitReason = "time_exit_10_days";

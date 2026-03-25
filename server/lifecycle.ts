@@ -335,6 +335,16 @@ export async function runDeploymentLifecycle(deploymentId: number): Promise<Life
               exitReason = "sigma_target";
               exitDetail = `Price ₹${quote.price.toFixed(2)} ≥ Target (${targetSigma > 0 ? `+${targetSigma}σ` : "Mean"} = ₹${targetPrice.toFixed(2)})`;
             }
+
+            // Band stop loss: only if stop_loss_sigma is set and > 0
+            if (!exitReason && deployment.stop_loss_sigma && deployment.stop_loss_sigma > 0) {
+              const stopPrice = bands.mean - deployment.stop_loss_sigma * oneSigma;
+              if (quote.low <= stopPrice) {
+                exitPrice = quote.price;  // Use actual current price, consistent with backtest
+                exitReason = "sigma_stop";
+                exitDetail = `Low ₹${quote.low.toFixed(2)} ≤ Stop (−${deployment.stop_loss_sigma}σ = ₹${stopPrice.toFixed(2)})`;
+              }
+            }
           }
 
           // Time exit (fallback)

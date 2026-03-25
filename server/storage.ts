@@ -320,7 +320,7 @@ sqlite.exec(`
     ma_period INTEGER DEFAULT 20,
     entry_band_sigma REAL DEFAULT 2,
     target_band_sigma REAL DEFAULT 2,
-    stop_loss_sigma REAL DEFAULT 2,
+    stop_loss_sigma REAL DEFAULT NULL,
     allow_parallel INTEGER DEFAULT 0,
     total_trades INTEGER DEFAULT 0,
     winning_trades INTEGER DEFAULT 0,

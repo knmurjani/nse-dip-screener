@@ -45,7 +45,7 @@ interface Deployment {
   ma_period: number;
   entry_band_sigma: number;
   target_band_sigma: number;
-  stop_loss_sigma: number;
+  stop_loss_sigma: number | null;
   allow_parallel: number;
   universe: string;
   benchmark: string;
@@ -411,7 +411,7 @@ function DeployFormModal({ open, onClose, defaultStrategy, cloneFrom }: {
     maPeriod: 20,
     entryBandSigma: 2,
     targetBandSigma: 2,
-    stopLossSigma: 2,
+    stopLossSigma: "none",
     allowParallel: false,
     universe: "nifty500",
     benchmark: "nifty50",
@@ -431,7 +431,7 @@ function DeployFormModal({ open, onClose, defaultStrategy, cloneFrom }: {
         maPeriod: cloneFrom.ma_period,
         entryBandSigma: cloneFrom.entry_band_sigma,
         targetBandSigma: cloneFrom.target_band_sigma,
-        stopLossSigma: cloneFrom.stop_loss_sigma,
+        stopLossSigma: cloneFrom.stop_loss_sigma != null && cloneFrom.stop_loss_sigma > 0 ? String(cloneFrom.stop_loss_sigma) : "none",
         allowParallel: !!cloneFrom.allow_parallel,
         universe: cloneFrom.universe || "nifty500",
         benchmark: cloneFrom.benchmark || "nifty50",
@@ -459,7 +459,7 @@ function DeployFormModal({ open, onClose, defaultStrategy, cloneFrom }: {
         body.maPeriod = form.maPeriod;
         body.entryBandSigma = form.entryBandSigma;
         body.targetBandSigma = form.targetBandSigma;
-        body.stopLossSigma = form.stopLossSigma;
+        body.stopLossSigma = form.stopLossSigma && form.stopLossSigma !== "none" ? Number(form.stopLossSigma) : null;
         body.allowParallel = form.allowParallel;
       }
       const res = await apiRequest("POST", "/api/deployments", body);
@@ -661,12 +661,18 @@ function DeployFormModal({ open, onClose, defaultStrategy, cloneFrom }: {
                   />
                 </div>
                 <div className="space-y-1.5">
-                  <Label className="text-xs">Stop σ</Label>
-                  <Input
-                    type="number" step="0.5" value={form.stopLossSigma}
-                    onChange={(e) => setForm({ ...form, stopLossSigma: Number(e.target.value) })}
-                    className="h-9 text-xs" data-testid="deploy-stop-sigma"
-                  />
+                  <Label className="text-xs">Band Stop σ</Label>
+                  <Select value={form.stopLossSigma} onValueChange={(v) => setForm({ ...form, stopLossSigma: v })}>
+                    <SelectTrigger className="h-9 text-xs" data-testid="deploy-stop-sigma">
+                      <SelectValue placeholder="None" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none" className="text-xs">None</SelectItem>
+                      <SelectItem value="2" className="text-xs">−2σ</SelectItem>
+                      <SelectItem value="3" className="text-xs">−3σ</SelectItem>
+                      <SelectItem value="4" className="text-xs">−4σ</SelectItem>
+                    </SelectContent>
+                  </Select>
                 </div>
               </div>
               <div className="flex items-center gap-2">
@@ -1018,7 +1024,7 @@ function DeploymentRulesCard({ deployment: d }: { deployment: Deployment }) {
                   <RuleRow label="MA Period" value={d.ma_period} />
                   <RuleRow label="Entry \u03c3" value={d.entry_band_sigma} />
                   <RuleRow label="Target \u03c3" value={d.target_band_sigma} />
-                  <RuleRow label="Stop \u03c3" value={d.stop_loss_sigma} />
+                  <RuleRow label="Band Stop \u03c3" value={d.stop_loss_sigma != null && d.stop_loss_sigma > 0 ? `\u2212${d.stop_loss_sigma}\u03c3` : "N/A"} />
                 </>
               )}
               <RuleRow label="Universe" value={UNIVERSE_LABELS[d.universe] || d.universe || "Nifty 500"} />
@@ -1595,7 +1601,7 @@ function SettingsModal({ open, onClose, deployment }: {
     maPeriod: d.ma_period,
     entryBandSigma: d.entry_band_sigma,
     targetBandSigma: d.target_band_sigma,
-    stopLossSigma: d.stop_loss_sigma,
+    stopLossSigma: d.stop_loss_sigma != null && d.stop_loss_sigma > 0 ? String(d.stop_loss_sigma) : "none",
     allowParallel: !!d.allow_parallel,
     universe: d.universe || "nifty500",
     benchmark: d.benchmark || "nifty50",
@@ -1611,7 +1617,7 @@ function SettingsModal({ open, onClose, deployment }: {
       maPeriod: d.ma_period,
       entryBandSigma: d.entry_band_sigma,
       targetBandSigma: d.target_band_sigma,
-      stopLossSigma: d.stop_loss_sigma,
+      stopLossSigma: d.stop_loss_sigma != null && d.stop_loss_sigma > 0 ? String(d.stop_loss_sigma) : "none",
       allowParallel: !!d.allow_parallel,
       universe: d.universe || "nifty500",
       benchmark: d.benchmark || "nifty50",
@@ -1632,7 +1638,7 @@ function SettingsModal({ open, onClose, deployment }: {
         body.maPeriod = form.maPeriod;
         body.entryBandSigma = form.entryBandSigma;
         body.targetBandSigma = form.targetBandSigma;
-        body.stopLossSigma = form.stopLossSigma;
+        body.stopLossSigma = form.stopLossSigma && form.stopLossSigma !== "none" ? Number(form.stopLossSigma) : null;
         body.allowParallel = form.allowParallel;
       }
       const res = await apiRequest("PUT", `/api/deployments/${d.id}`, body);
@@ -1758,12 +1764,18 @@ function SettingsModal({ open, onClose, deployment }: {
                   />
                 </div>
                 <div className="space-y-1.5">
-                  <Label className="text-xs">Stop σ</Label>
-                  <Input
-                    type="number" step="0.5" value={form.stopLossSigma}
-                    onChange={(e) => setForm({ ...form, stopLossSigma: Number(e.target.value) })}
-                    className="h-9 text-xs" data-testid="settings-stop-sigma"
-                  />
+                  <Label className="text-xs">Band Stop σ</Label>
+                  <Select value={form.stopLossSigma} onValueChange={(v) => setForm({ ...form, stopLossSigma: v })}>
+                    <SelectTrigger className="h-9 text-xs" data-testid="settings-stop-sigma">
+                      <SelectValue placeholder="None" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="none" className="text-xs">None</SelectItem>
+                      <SelectItem value="2" className="text-xs">−2σ</SelectItem>
+                      <SelectItem value="3" className="text-xs">−3σ</SelectItem>
+                      <SelectItem value="4" className="text-xs">−4σ</SelectItem>
+                    </SelectContent>
+                  </Select>
                 </div>
               </div>
               <div className="flex items-center gap-2">

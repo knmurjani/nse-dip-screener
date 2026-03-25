@@ -98,9 +98,11 @@ export interface BollingerMRParams {
   watchlistCondition?: string; // "below_-2s" | "below_-1s" | "below_-3s" | "below_mean" (default: below_-2s)
   entryCondition?: string;     // "cross_above_mean" | "cross_above_-2s" | "cross_above_-1s" | "cross_above_+1s" (default: cross_above_mean)
   exitTarget?: string;         // "reach_+2s" | "reach_+1s" | "reach_+3s" | "reach_mean" (default: reach_+2s)
+  exitStopBand?: string;       // "none" | "below_-2s" | "below_-3s" | "below_-4s" (default: none)
   // Legacy numeric params (used as fallback)
   entryBandSigma?: number;     // default 2 (watchlist below this)
   targetBandSigma?: number;    // default 2 (exit above +Nσ)
+  stopLossSigma?: number;      // default 0 = no band stop
   maxHoldDays?: number;        // default 0 = no time exit
   allowParallelPositions?: boolean;
   absoluteStopPct?: number;
@@ -143,6 +145,11 @@ function parseExitTarget(cond?: string, fallback?: number): { sigma: number; use
   return m ? { sigma: parseInt(m[1]), useMean: false } : { sigma: fallback || 2, useMean: false };
 }
 
+function parseExitStop(cond?: string, fallback?: number): number {
+  if (!cond || cond === "none") return fallback || 0;
+  const m = cond.match(/below_(-?\d+)s/);
+  return m ? Math.abs(parseInt(m[1])) : fallback || 0;
+}
 
 export async function runBollingerMRBacktest(params: BollingerMRParams): Promise<BacktestResult> {
   const CAPITAL = params.capitalRs || 1000000;
@@ -153,6 +160,7 @@ export async function runBollingerMRBacktest(params: BollingerMRParams): Promise
   const watchlistCfg = parseWatchlistSigma(params.watchlistCondition, params.entryBandSigma);
   const entryCfg = parseEntrySigma(params.entryCondition);
   const exitTargetCfg = parseExitTarget(params.exitTarget, params.targetBandSigma);
+  const EXIT_STOP_SIGMA = parseExitStop(params.exitStopBand, params.stopLossSigma);
 
   // Legacy fallbacks
   const ENTRY_SIGMA = params.entryBandSigma || 2;
@@ -187,7 +195,7 @@ export async function runBollingerMRBacktest(params: BollingerMRParams): Promise
 
   const yearsLabel = ((toDate.getTime() - backtestStart.getTime()) / (365.25 * 86400000)).toFixed(1);
   const useKite = isAuthenticated();
-  console.log(`[BollMR-BT] ${yearsLabel}yr (${startStr} → ${to}), ₹${(CAPITAL/1e5).toFixed(0)}L, ${MAX_POS} pos, ${MA_PERIOD}MA, entry ${ENTRY_SIGMA}σ, target +${TARGET_SIGMA}σ, parallel=${ALLOW_PARALLEL}`);
+  console.log(`[BollMR-BT] ${yearsLabel}yr (${startStr} → ${to}), ₹${(CAPITAL/1e5).toFixed(0)}L, ${MAX_POS} pos, ${MA_PERIOD}MA, entry ${ENTRY_SIGMA}σ, target +${TARGET_SIGMA}σ${EXIT_STOP_SIGMA ? `, band stop -${EXIT_STOP_SIGMA}σ` : ''}, parallel=${ALLOW_PARALLEL}`);
 
   // Fetch benchmark
   const bmTicker = params.benchmarkTicker || "^NSEI";
@@ -282,9 +290,18 @@ export async function runBollingerMRBacktest(params: BollingerMRParams): Promise
         exitDetail = `✅ ${targetLabel} TARGET: Close ₹${bar.close.toFixed(2)} > ${targetLabel} ₹${targetLevel.toFixed(2)}`;
       }
 
+      // Exit 2: Band stop loss (configurable: -2σ, -3σ, -4σ — only if enabled)
+      if (!exitReason && EXIT_STOP_SIGMA > 0) {
+        const stopLevel = ma - EXIT_STOP_SIGMA * std;
+        if (bar.close < stopLevel) {
+          exitPrice = bar.close;
+          exitReason = "price_action_close_above_prev_high";
+          exitDetail = `🛑 −${EXIT_STOP_SIGMA}σ STOP: Close ₹${bar.close.toFixed(2)} < −${EXIT_STOP_SIGMA}σ ₹${stopLevel.toFixed(2)}`;
+        }
+      }
       const upperBand = exitTargetCfg.useMean ? ma : (ma + exitTargetCfg.sigma * std);
 
-      // Exit 2: Absolute stop (if configured)
+      // Exit 3: Absolute stop (if configured)
       if (!exitReason && ABS_STOP) {
         const absStopPrice = pos.entryPrice * (1 - ABS_STOP / 100);
         if (bar.low <= absStopPrice) {
@@ -294,7 +311,7 @@ export async function runBollingerMRBacktest(params: BollingerMRParams): Promise
         }
       }
 
-      // Exit 3: Trailing stop (if configured)
+      // Exit 4: Trailing stop (if configured)
       if (!exitReason && TRAIL_STOP) {
         const trailStopPrice = pos.peakPrice * (1 - TRAIL_STOP / 100);
         if (bar.low <= trailStopPrice) {
@@ -304,7 +321,7 @@ export async function runBollingerMRBacktest(params: BollingerMRParams): Promise
         }
       }
 
-      // Exit 4: Time exit (only if maxHoldDays > 0)
+      // Exit 5: Time exit (only if maxHoldDays > 0)
       if (!exitReason && MAX_HOLD > 0 && pos.tradingDaysHeld >= MAX_HOLD) {
         exitPrice = bar.close;
         exitReason = "time_exit_10_days";

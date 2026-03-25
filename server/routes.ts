@@ -410,7 +410,7 @@ export async function registerRoutes(
       let result;
       const commonParams = { capitalRs: capital || 1000000, maxPositions: maxPositions || 10, lookbackYears: years || 5 };
 
-      const bollingerConditions = { watchlistCondition, entryCondition, exitTarget };
+      const bollingerConditions = { watchlistCondition, entryCondition, exitTarget, exitStopBand };
 
       if (strategy === "bollinger_bounce" || strategy === "bollinger_mr") {
         result = await runBollingerMRBacktest({
@@ -420,6 +420,7 @@ export async function registerRoutes(
           maPeriod: maPeriod || 20,
           entryBandSigma: entryBandSigma || 2,
           targetBandSigma: targetBandSigma || 2,
+          stopLossSigma: stopLossSigma || 0,
           maxHoldDays: maxHoldDays !== undefined && maxHoldDays !== "" ? Number(maxHoldDays) : 0,
           allowParallelPositions: allowParallelPositions || false,
           absoluteStopPct: absoluteStopPct || undefined,
@@ -458,7 +459,7 @@ export async function registerRoutes(
       const strategyDef = getStrategy(strategy);
       // Build human-readable rule descriptions for this specific run
       const condLabels: Record<string, string> = {
-        "below_-1s": "Below −1σ", "below_-2s": "Below −2σ", "below_-3s": "Below −3σ", "below_mean": "Below Mean (20-DMA)",
+        "below_-1s": "Below −1σ", "below_-2s": "Below −2σ", "below_-3s": "Below −3σ", "below_-4s": "Below −4σ", "below_mean": "Below Mean (20-DMA)",
         "cross_above_-2s": "Cross above −2σ", "cross_above_-1s": "Cross above −1σ",
         "cross_above_mean": "Cross above Mean (20-DMA)", "cross_above_+1s": "Cross above +1σ",
         "reach_mean": "Reach Mean (20-DMA)", "reach_+1s": "Reach +1σ", "reach_+2s": "Reach +2σ", "reach_+3s": "Reach +3σ",
@@ -488,6 +489,7 @@ export async function registerRoutes(
         },
         exit: {
           profitTarget: exitTarget ? condLabels[exitTarget] : (strategy === "atr_dip_buyer" ? `Entry + ${profitTargetMultiple ?? 0.5}\u00d7ATR(5)` : "N/A"),
+          bandStopLoss: exitStopBand && exitStopBand !== "none" ? condLabels[exitStopBand] || exitStopBand : "N/A",
           absoluteStopLoss: absoluteStopPct ? `\u2212${absoluteStopPct}% from entry` : "N/A",
           trailingStopLoss: trailingStopPct ? `\u2212${trailingStopPct}% from peak` : "N/A",
           priceActionExit: strategy === "atr_dip_buyer" ? (priceActionExit !== false ? "Close > previous day's high" : "Disabled") : "N/A",
@@ -506,7 +508,7 @@ export async function registerRoutes(
         allowParallelPositions,
         universe: universe || "nifty500", benchmark: benchmark || "nifty50", benchmarkLabel,
         // Configurable conditions
-        watchlistCondition, entryCondition, exitTarget,
+        watchlistCondition, entryCondition, exitTarget, exitStopBand,
         // ATR-specific params
         dmaLength, dipThresholdPct, atrFilterThreshold, limitOrderMultiple, profitTargetMultiple, priceActionExit,
         // Comprehensive rules template
@@ -520,6 +522,7 @@ export async function registerRoutes(
         exitRules: [
           ...(strategyDef?.exitRules || []),
           ...(exitTarget ? [{ name: "Profit Target", description: condLabels[exitTarget] || exitTarget }] : []),
+          ...(exitStopBand && exitStopBand !== "none" ? [{ name: "Band Stop", description: condLabels[exitStopBand] || exitStopBand }] : []),
           ...(absoluteStopPct ? [{ name: "Absolute Stop", description: `\u2212${absoluteStopPct}% from entry` }] : []),
           ...(trailingStopPct ? [{ name: "Trailing Stop", description: `\u2212${trailingStopPct}% from peak` }] : []),
           ...(maxHoldDays && maxHoldDays > 0 ? [{ name: "Time Exit", description: `${maxHoldDays} trading days max` }] : []),
@@ -788,7 +791,7 @@ export async function registerRoutes(
         deployName, strategyId, mode || 'paper', now, capital, capital,
         maxPositions ?? 10, maxHoldDays ?? 0,
         absoluteStopPct ?? null, trailingStopPct ?? null,
-        maPeriod ?? 20, entryBandSigma ?? 2, targetBandSigma ?? 2, stopLossSigma ?? 2,
+        maPeriod ?? 20, entryBandSigma ?? 2, targetBandSigma ?? 2, stopLossSigma ?? null,
         allowParallel ? 1 : 0,
         universe || 'nifty500', benchmark || 'nifty50'
       );
