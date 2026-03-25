@@ -7,7 +7,7 @@ import { getBacktestResult, clearBacktestCache, runBacktest } from "./backtest";
 import { runBollingerBacktest } from "./backtest-bollinger";
 import { runBollingerMRBacktest } from "./backtest-bollinger-mr";
 import Database from "better-sqlite3";
-import { logSystem, getSystemLogs, getChangelog, DB_PATH } from "./storage";
+import { logSystem, getSystemLogs, getChangelog, DB_PATH, istNow, getDeployments, getDeployment, getActiveDeployments, getDeploymentPositions, getDeploymentTrades, getDeploymentSnapshots, getFundTransactions, getDeploymentChangelog } from "./storage";
 import { getFilterBreakdown, clearFilterBreakdownCache } from "./filter-breakdown";
 import { getPortfolioSummary, runDailyLifecycle } from "./live-portfolio";
 import { runBollingerScreener, clearBollingerCache } from "./screener-bollinger";
@@ -452,6 +452,217 @@ export async function registerRoutes(
     } catch (error: any) {
       console.error("[API] Filter breakdown error:", error.message);
       res.status(500).json({ error: "Filter breakdown failed", message: error.message });
+    }
+  });
+
+  // ─── Deployments ───
+
+  app.post("/api/deployments", (req, res) => {
+    try {
+      const { name, strategyId, mode, capital, maxPositions, maxHoldDays, absoluteStopPct, trailingStopPct, maPeriod, entryBandSigma, targetBandSigma, stopLossSigma, allowParallel } = req.body;
+      if (!strategyId || !capital) return res.status(400).json({ error: "strategyId and capital are required" });
+      const now = istNow();
+      const deployName = name || `${strategyId} ${mode || 'paper'} ${now.split(" ")[0]}`;
+      const sqliteDb = new Database(DB_PATH);
+      const result = sqliteDb.prepare(`
+        INSERT INTO deployments (name, strategy_id, mode, status, created_at, initial_capital, current_capital, max_positions, max_hold_days, absolute_stop_pct, trailing_stop_pct, ma_period, entry_band_sigma, target_band_sigma, stop_loss_sigma, allow_parallel)
+        VALUES (?, ?, ?, 'active', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        deployName, strategyId, mode || 'paper', now, capital, capital,
+        maxPositions ?? 10, maxHoldDays ?? 0,
+        absoluteStopPct ?? null, trailingStopPct ?? null,
+        maPeriod ?? 20, entryBandSigma ?? 2, targetBandSigma ?? 2, stopLossSigma ?? 2,
+        allowParallel ? 1 : 0
+      );
+      const id = result.lastInsertRowid;
+      // Record initial deposit in fund_transactions
+      sqliteDb.prepare(`INSERT INTO fund_transactions (deployment_id, date, type, amount, balance_after, note) VALUES (?, ?, 'initial_deposit', ?, ?, 'Initial capital')`)
+        .run(id, now, capital, capital);
+      logSystem("deployment", "created", `Deployment #${id} '${deployName}' created — ${mode} mode, ₹${capital}`);
+      res.json(getDeployment(Number(id)));
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.get("/api/deployments", (_req, res) => {
+    try {
+      res.json(getDeployments());
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.get("/api/deployments/:id", (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const deployment = getDeployment(id);
+      if (!deployment) return res.status(404).json({ error: "Deployment not found" });
+      const positions = getDeploymentPositions(id);
+      const trades = getDeploymentTrades(id);
+      const snapshots = getDeploymentSnapshots(id);
+      const funds = getFundTransactions(id);
+      const changelog = getDeploymentChangelog(id);
+      res.json({ ...deployment, positions, trades, snapshots, funds, changelog });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.put("/api/deployments/:id", (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const deployment = getDeployment(id);
+      if (!deployment) return res.status(404).json({ error: "Deployment not found" });
+      const now = istNow();
+      const sqliteDb = new Database(DB_PATH);
+      const updatableFields: Record<string, string> = {
+        maxPositions: 'max_positions', maxHoldDays: 'max_hold_days',
+        absoluteStopPct: 'absolute_stop_pct', trailingStopPct: 'trailing_stop_pct',
+        maPeriod: 'ma_period', entryBandSigma: 'entry_band_sigma',
+        targetBandSigma: 'target_band_sigma', stopLossSigma: 'stop_loss_sigma',
+        allowParallel: 'allow_parallel'
+      };
+      for (const [jsKey, dbCol] of Object.entries(updatableFields)) {
+        if (req.body[jsKey] !== undefined) {
+          const oldVal = deployment[dbCol];
+          let newVal = req.body[jsKey];
+          if (jsKey === 'allowParallel') newVal = newVal ? 1 : 0;
+          if (String(oldVal) !== String(newVal)) {
+            sqliteDb.prepare(`UPDATE deployments SET ${dbCol} = ? WHERE id = ?`).run(newVal, id);
+            sqliteDb.prepare(`INSERT INTO deployment_changelog (deployment_id, date, field, old_value, new_value) VALUES (?, ?, ?, ?, ?)`)
+              .run(id, now, dbCol, String(oldVal ?? ''), String(newVal ?? ''));
+          }
+        }
+      }
+      logSystem("deployment", "settings_updated", `Deployment #${id} settings updated`);
+      res.json(getDeployment(id));
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.post("/api/deployments/:id/pause", (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const deployment = getDeployment(id);
+      if (!deployment) return res.status(404).json({ error: "Deployment not found" });
+      if (deployment.status !== 'active') return res.status(400).json({ error: "Only active deployments can be paused" });
+      const sqliteDb = new Database(DB_PATH);
+      sqliteDb.prepare("UPDATE deployments SET status = 'paused' WHERE id = ?").run(id);
+      logSystem("deployment", "paused", `Deployment #${id} '${deployment.name}' paused`);
+      res.json(getDeployment(id));
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.post("/api/deployments/:id/resume", (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const deployment = getDeployment(id);
+      if (!deployment) return res.status(404).json({ error: "Deployment not found" });
+      if (deployment.status !== 'paused') return res.status(400).json({ error: "Only paused deployments can be resumed" });
+      const sqliteDb = new Database(DB_PATH);
+      sqliteDb.prepare("UPDATE deployments SET status = 'active' WHERE id = ?").run(id);
+      logSystem("deployment", "resumed", `Deployment #${id} '${deployment.name}' resumed`);
+      res.json(getDeployment(id));
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.post("/api/deployments/:id/stop", (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const deployment = getDeployment(id);
+      if (!deployment) return res.status(404).json({ error: "Deployment not found" });
+      if (deployment.status === 'stopped') return res.status(400).json({ error: "Deployment already stopped" });
+      const sqliteDb = new Database(DB_PATH);
+      // Close all open positions as market-close trades
+      const positions = getDeploymentPositions(id);
+      const now = istNow();
+      for (const pos of positions) {
+        const exitPrice = pos.current_price || pos.entry_price;
+        const exitValue = exitPrice * pos.quantity;
+        const pnl = exitValue - pos.entry_value;
+        const pnlPct = (pnl / pos.entry_value) * 100;
+        sqliteDb.prepare(`
+          INSERT INTO deployment_trades (deployment_id, symbol, name, direction, signal_date, entry_date, entry_time, entry_price, quantity, entry_value, exit_date, exit_time, exit_price, exit_value, pnl, pnl_pct, days_held, exit_reason, exit_reason_detail, setup_score)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'deployment_stopped', 'Deployment stopped by user', ?)
+        `).run(id, pos.symbol, pos.name, pos.direction, pos.signal_date, pos.entry_date, pos.entry_time, pos.entry_price, pos.quantity, pos.entry_value, now.split(" ")[0], now, exitPrice, exitValue, pnl, pnlPct, pos.trading_days_held || 0, pos.setup_score);
+      }
+      // Delete all open positions
+      sqliteDb.prepare("DELETE FROM deployment_positions WHERE deployment_id = ?").run(id);
+      sqliteDb.prepare("UPDATE deployments SET status = 'stopped' WHERE id = ?").run(id);
+      logSystem("deployment", "stopped", `Deployment #${id} '${deployment.name}' stopped — ${positions.length} positions closed`);
+      res.json(getDeployment(id));
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.post("/api/deployments/:id/funds", (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const deployment = getDeployment(id);
+      if (!deployment) return res.status(404).json({ error: "Deployment not found" });
+      const { type, amount, note } = req.body;
+      if (!type || amount === undefined) return res.status(400).json({ error: "type and amount required" });
+      const sqliteDb = new Database(DB_PATH);
+      const now = istNow();
+      let fundAmount = Number(amount);
+      if (type === 'withdraw') fundAmount = -Math.abs(fundAmount);
+      else fundAmount = Math.abs(fundAmount);
+      const newCapital = deployment.current_capital + fundAmount;
+      if (newCapital < 0) return res.status(400).json({ error: "Insufficient funds for withdrawal" });
+      sqliteDb.prepare("UPDATE deployments SET current_capital = ? WHERE id = ?").run(newCapital, id);
+      sqliteDb.prepare("INSERT INTO fund_transactions (deployment_id, date, type, amount, balance_after, note) VALUES (?, ?, ?, ?, ?, ?)")
+        .run(id, now, type, fundAmount, newCapital, note || null);
+      logSystem("deployment", "fund_transaction", `Deployment #${id}: ${type} ₹${Math.abs(fundAmount)} → balance ₹${newCapital}`);
+      res.json({ deployment: getDeployment(id), transaction: { type, amount: fundAmount, balanceAfter: newCapital } });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.get("/api/deployments/:id/positions", (req, res) => {
+    try {
+      res.json(getDeploymentPositions(parseInt(req.params.id)));
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.get("/api/deployments/:id/trades", (req, res) => {
+    try {
+      res.json(getDeploymentTrades(parseInt(req.params.id)));
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.get("/api/deployments/:id/snapshots", (req, res) => {
+    try {
+      res.json(getDeploymentSnapshots(parseInt(req.params.id)));
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.get("/api/deployments/:id/funds", (req, res) => {
+    try {
+      res.json(getFundTransactions(parseInt(req.params.id)));
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  app.get("/api/deployments/:id/changelog", (req, res) => {
+    try {
+      res.json(getDeploymentChangelog(parseInt(req.params.id)));
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
     }
   });
 

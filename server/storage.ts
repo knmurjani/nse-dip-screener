@@ -301,5 +301,162 @@ function seedChangelog() {
 }
 seedChangelog();
 
+// ─── Deployment System Tables ───
+
+sqlite.exec(`
+  CREATE TABLE IF NOT EXISTS deployments (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    name TEXT NOT NULL,
+    strategy_id TEXT NOT NULL,
+    mode TEXT NOT NULL DEFAULT 'paper',
+    status TEXT NOT NULL DEFAULT 'active',
+    created_at TEXT NOT NULL,
+    initial_capital REAL NOT NULL,
+    current_capital REAL NOT NULL,
+    max_positions INTEGER NOT NULL DEFAULT 10,
+    max_hold_days INTEGER NOT NULL DEFAULT 0,
+    absolute_stop_pct REAL,
+    trailing_stop_pct REAL,
+    ma_period INTEGER DEFAULT 20,
+    entry_band_sigma REAL DEFAULT 2,
+    target_band_sigma REAL DEFAULT 2,
+    stop_loss_sigma REAL DEFAULT 2,
+    allow_parallel INTEGER DEFAULT 0,
+    total_trades INTEGER DEFAULT 0,
+    winning_trades INTEGER DEFAULT 0,
+    realized_pnl REAL DEFAULT 0,
+    unrealized_pnl REAL DEFAULT 0,
+    max_drawdown_pct REAL DEFAULT 0,
+    last_run_date TEXT
+  );
+
+  CREATE TABLE IF NOT EXISTS deployment_positions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    deployment_id INTEGER NOT NULL,
+    symbol TEXT NOT NULL,
+    name TEXT NOT NULL,
+    direction TEXT NOT NULL DEFAULT 'LONG',
+    signal_date TEXT NOT NULL,
+    entry_date TEXT NOT NULL,
+    entry_time TEXT NOT NULL,
+    entry_price REAL NOT NULL,
+    quantity INTEGER NOT NULL,
+    entry_value REAL NOT NULL,
+    current_price REAL,
+    current_value REAL,
+    pnl REAL,
+    pnl_pct REAL,
+    trading_days_held INTEGER DEFAULT 0,
+    peak_price REAL,
+    setup_score REAL,
+    last_updated TEXT,
+    FOREIGN KEY (deployment_id) REFERENCES deployments(id)
+  );
+
+  CREATE TABLE IF NOT EXISTS deployment_trades (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    deployment_id INTEGER NOT NULL,
+    symbol TEXT NOT NULL,
+    name TEXT NOT NULL,
+    direction TEXT NOT NULL DEFAULT 'LONG',
+    signal_date TEXT NOT NULL,
+    entry_date TEXT NOT NULL,
+    entry_time TEXT NOT NULL,
+    entry_price REAL NOT NULL,
+    quantity INTEGER NOT NULL,
+    entry_value REAL NOT NULL,
+    exit_date TEXT NOT NULL,
+    exit_time TEXT NOT NULL,
+    exit_price REAL NOT NULL,
+    exit_value REAL NOT NULL,
+    pnl REAL NOT NULL,
+    pnl_pct REAL NOT NULL,
+    days_held INTEGER NOT NULL,
+    exit_reason TEXT NOT NULL,
+    exit_reason_detail TEXT,
+    setup_score REAL,
+    FOREIGN KEY (deployment_id) REFERENCES deployments(id)
+  );
+
+  CREATE TABLE IF NOT EXISTS deployment_snapshots (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    deployment_id INTEGER NOT NULL,
+    date TEXT NOT NULL,
+    portfolio_value REAL NOT NULL,
+    cash REAL NOT NULL,
+    invested_value REAL NOT NULL,
+    unrealized_pnl REAL NOT NULL,
+    realized_pnl REAL NOT NULL,
+    open_positions INTEGER NOT NULL,
+    return_pct REAL NOT NULL,
+    drawdown_pct REAL NOT NULL,
+    nifty_close REAL,
+    nifty_return_pct REAL,
+    FOREIGN KEY (deployment_id) REFERENCES deployments(id)
+  );
+
+  CREATE TABLE IF NOT EXISTS fund_transactions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    deployment_id INTEGER NOT NULL,
+    date TEXT NOT NULL,
+    type TEXT NOT NULL,
+    amount REAL NOT NULL,
+    balance_after REAL NOT NULL,
+    note TEXT,
+    FOREIGN KEY (deployment_id) REFERENCES deployments(id)
+  );
+
+  CREATE TABLE IF NOT EXISTS deployment_changelog (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    deployment_id INTEGER NOT NULL,
+    date TEXT NOT NULL,
+    field TEXT NOT NULL,
+    old_value TEXT,
+    new_value TEXT,
+    note TEXT,
+    FOREIGN KEY (deployment_id) REFERENCES deployments(id)
+  );
+`);
+
+// ─── IST Helper ───
+
+export function istNow(): string {
+  return new Date(Date.now() + 5.5 * 60 * 60 * 1000).toISOString().replace("T", " ").split(".")[0] + " IST";
+}
+
+// ─── Deployment Helpers ───
+
+export function getDeployments(): any[] {
+  return sqlite.prepare("SELECT * FROM deployments ORDER BY id DESC").all();
+}
+
+export function getDeployment(id: number): any {
+  return sqlite.prepare("SELECT * FROM deployments WHERE id = ?").get(id);
+}
+
+export function getActiveDeployments(): any[] {
+  return sqlite.prepare("SELECT * FROM deployments WHERE status = 'active' ORDER BY id DESC").all();
+}
+
+export function getDeploymentPositions(deploymentId: number): any[] {
+  return sqlite.prepare("SELECT * FROM deployment_positions WHERE deployment_id = ? ORDER BY entry_date DESC").all(deploymentId);
+}
+
+export function getDeploymentTrades(deploymentId: number): any[] {
+  return sqlite.prepare("SELECT * FROM deployment_trades WHERE deployment_id = ? ORDER BY exit_date DESC").all(deploymentId);
+}
+
+export function getDeploymentSnapshots(deploymentId: number): any[] {
+  return sqlite.prepare("SELECT * FROM deployment_snapshots WHERE deployment_id = ? ORDER BY date ASC").all(deploymentId);
+}
+
+export function getFundTransactions(deploymentId: number): any[] {
+  return sqlite.prepare("SELECT * FROM fund_transactions WHERE deployment_id = ? ORDER BY id DESC").all(deploymentId);
+}
+
+export function getDeploymentChangelog(deploymentId: number): any[] {
+  return sqlite.prepare("SELECT * FROM deployment_changelog WHERE deployment_id = ? ORDER BY id DESC").all(deploymentId);
+}
+
 // Log app startup
 logSystem("system", "server_started", `App started at ${new Date().toISOString()}`);
