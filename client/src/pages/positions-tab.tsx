@@ -20,7 +20,8 @@ import {
   Rocket, Briefcase, History, Plus, Minus, Settings, Pause, Play, Square,
   TrendingUp, TrendingDown, ArrowUpDown, ArrowUp, ArrowDown,
   Wallet, BarChart3, AlertTriangle, DollarSign, Percent,
-  FileText, ChevronDown, ClipboardList, RotateCw,
+  FileText, ChevronDown, ChevronUp, ClipboardList, RotateCw, XCircle, Copy,
+  Crosshair, Clock, Info, Ban,
 } from "lucide-react";
 import { useStrategy } from "@/lib/strategy-context";
 import { useToast } from "@/hooks/use-toast";
@@ -46,6 +47,8 @@ interface Deployment {
   target_band_sigma: number;
   stop_loss_sigma: number;
   allow_parallel: number;
+  universe: string;
+  benchmark: string;
   total_trades: number;
   winning_trades: number;
   realized_pnl: number;
@@ -170,6 +173,24 @@ const STRATEGY_LABELS: Record<string, string> = {
   bollinger_mr: "Bollinger −2σ to +2σ",
 };
 
+const UNIVERSE_LABELS: Record<string, string> = {
+  nifty50: "Nifty 50",
+  nifty100: "Nifty 100",
+  nifty200: "Nifty 200",
+  nifty500: "Nifty 500",
+  all: "All NSE",
+};
+
+const BENCHMARK_LABELS: Record<string, string> = {
+  nifty50: "NIFTY 50",
+  niftynext50: "NIFTY NEXT 50",
+  nifty100: "NIFTY 100",
+  nifty200: "NIFTY 200",
+  nifty500: "NIFTY 500",
+  niftymidcap100: "NIFTY MIDCAP 100",
+  niftysmallcap100: "NIFTY SMALLCAP 100",
+};
+
 function isBollingerStrategy(id: string) {
   return id === "bollinger_bounce" || id === "bollinger_mr";
 }
@@ -231,6 +252,7 @@ export default function PositionsTab() {
   const [showFundsModal, setShowFundsModal] = useState(false);
   const [fundsAction, setFundsAction] = useState<"add_funds" | "withdraw">("add_funds");
   const [subTab, setSubTab] = useState("positions");
+  const [cloneSource, setCloneSource] = useState<Deployment | null>(null);
 
   // Fetch all deployments
   const { data: allDeployments, isLoading: deploymentsLoading } = useQuery<Deployment[]>({
@@ -317,6 +339,7 @@ export default function PositionsTab() {
               onSettings={() => setShowSettingsModal(true)}
               onAddFunds={() => { setFundsAction("add_funds"); setShowFundsModal(true); }}
               onWithdraw={() => { setFundsAction("withdraw"); setShowFundsModal(true); }}
+              onClone={() => { setCloneSource(deployment); setShowDeployForm(true); }}
               subTab={subTab}
               setSubTab={setSubTab}
             />
@@ -327,8 +350,9 @@ export default function PositionsTab() {
       {/* Deploy Form Modal */}
       <DeployFormModal
         open={showDeployForm}
-        onClose={() => setShowDeployForm(false)}
+        onClose={() => { setShowDeployForm(false); setCloneSource(null); }}
         defaultStrategy={strategyId}
+        cloneFrom={cloneSource}
       />
 
       {/* Settings Modal */}
@@ -371,8 +395,8 @@ function EmptyState({ onDeploy }: { onDeploy: () => void }) {
 
 // ─── Deploy Form Modal ───
 
-function DeployFormModal({ open, onClose, defaultStrategy }: {
-  open: boolean; onClose: () => void; defaultStrategy: string;
+function DeployFormModal({ open, onClose, defaultStrategy, cloneFrom }: {
+  open: boolean; onClose: () => void; defaultStrategy: string; cloneFrom?: Deployment | null;
 }) {
   const { toast } = useToast();
   const [form, setForm] = useState({
@@ -389,11 +413,33 @@ function DeployFormModal({ open, onClose, defaultStrategy }: {
     targetBandSigma: 2,
     stopLossSigma: 2,
     allowParallel: false,
+    universe: "nifty500",
+    benchmark: "nifty50",
   });
 
   useEffect(() => {
-    setForm((f) => ({ ...f, strategyId: defaultStrategy }));
-  }, [defaultStrategy]);
+    if (cloneFrom) {
+      setForm({
+        name: "",
+        strategyId: cloneFrom.strategy_id,
+        mode: cloneFrom.mode,
+        capital: cloneFrom.initial_capital,
+        maxPositions: cloneFrom.max_positions,
+        maxHoldDays: cloneFrom.max_hold_days,
+        absoluteStopPct: cloneFrom.absolute_stop_pct != null ? String(cloneFrom.absolute_stop_pct) : "",
+        trailingStopPct: cloneFrom.trailing_stop_pct != null ? String(cloneFrom.trailing_stop_pct) : "",
+        maPeriod: cloneFrom.ma_period,
+        entryBandSigma: cloneFrom.entry_band_sigma,
+        targetBandSigma: cloneFrom.target_band_sigma,
+        stopLossSigma: cloneFrom.stop_loss_sigma,
+        allowParallel: !!cloneFrom.allow_parallel,
+        universe: cloneFrom.universe || "nifty500",
+        benchmark: cloneFrom.benchmark || "nifty50",
+      });
+    } else {
+      setForm((f) => ({ ...f, strategyId: defaultStrategy }));
+    }
+  }, [defaultStrategy, cloneFrom]);
 
   const createMutation = useMutation({
     mutationFn: async () => {
@@ -406,6 +452,8 @@ function DeployFormModal({ open, onClose, defaultStrategy }: {
         maxHoldDays: form.maxHoldDays,
         absoluteStopPct: form.absoluteStopPct ? Number(form.absoluteStopPct) : null,
         trailingStopPct: form.trailingStopPct ? Number(form.trailingStopPct) : null,
+        universe: form.universe,
+        benchmark: form.benchmark,
       };
       if (isBollingerStrategy(form.strategyId)) {
         body.maPeriod = form.maPeriod;
@@ -433,9 +481,9 @@ function DeployFormModal({ open, onClose, defaultStrategy }: {
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle className="text-base">Deploy Strategy</DialogTitle>
+          <DialogTitle className="text-base">{cloneFrom ? "Clone & Deploy" : "Deploy Strategy"}</DialogTitle>
           <DialogDescription className="text-xs text-muted-foreground">
-            Configure and deploy a new trading strategy
+            {cloneFrom ? `Pre-filled from "${cloneFrom.name}" — adjust parameters and deploy` : "Configure and deploy a new trading strategy"}
           </DialogDescription>
         </DialogHeader>
 
@@ -482,6 +530,36 @@ function DeployFormModal({ open, onClose, defaultStrategy }: {
                 <p className="text-[11px] text-yellow-500">Real money mode — trades will use actual capital. Ensure you understand the risks.</p>
               </div>
             )}
+          </div>
+
+          {/* Universe + Benchmark */}
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <Label className="text-xs">Universe</Label>
+              <Select value={form.universe} onValueChange={(v) => setForm({ ...form, universe: v })}>
+                <SelectTrigger className="h-9 text-xs" data-testid="deploy-universe">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {Object.entries(UNIVERSE_LABELS).map(([k, v]) => (
+                    <SelectItem key={k} value={k}>{v}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs">Benchmark</Label>
+              <Select value={form.benchmark} onValueChange={(v) => setForm({ ...form, benchmark: v })}>
+                <SelectTrigger className="h-9 text-xs" data-testid="deploy-benchmark">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {Object.entries(BENCHMARK_LABELS).map(([k, v]) => (
+                    <SelectItem key={k} value={k}>{v}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
           </div>
 
           {/* Name */}
@@ -621,11 +699,12 @@ function DeployFormModal({ open, onClose, defaultStrategy }: {
 
 // ─── Deployment Dashboard ───
 
-function DeploymentDashboard({ deployment, onSettings, onAddFunds, onWithdraw, subTab, setSubTab }: {
+function DeploymentDashboard({ deployment, onSettings, onAddFunds, onWithdraw, onClone, subTab, setSubTab }: {
   deployment: Deployment;
   onSettings: () => void;
   onAddFunds: () => void;
   onWithdraw: () => void;
+  onClone: () => void;
   subTab: string;
   setSubTab: (t: string) => void;
 }) {
@@ -706,6 +785,9 @@ function DeploymentDashboard({ deployment, onSettings, onAddFunds, onWithdraw, s
           <Button variant="outline" size="sm" className="h-7 text-xs gap-1" onClick={onSettings} data-testid="button-settings">
             <Settings className="w-3 h-3" /> Settings
           </Button>
+          <Button variant="outline" size="sm" className="h-7 text-xs gap-1" onClick={onClone} data-testid="button-clone">
+            <Copy className="w-3 h-3" /> Clone
+          </Button>
           <Button
             variant="outline" size="sm" className="h-7 text-xs gap-1"
             onClick={() => pauseResumeMutation.mutate()}
@@ -756,6 +838,9 @@ function DeploymentDashboard({ deployment, onSettings, onAddFunds, onWithdraw, s
         />
         <KpiCard label="Max Drawdown" value={`-${(d.max_drawdown_pct || 0).toFixed(1)}%`} color="text-loss" testId="kpi-max-drawdown" />
       </div>
+
+      {/* Deployment Configuration / Rules */}
+      <DeploymentRulesCard deployment={d} />
 
       {/* Equity Curve */}
       {snapshots.length > 0 && (
@@ -831,7 +916,7 @@ function DeploymentDashboard({ deployment, onSettings, onAddFunds, onWithdraw, s
 
         {/* Orders Log */}
         <TabsContent value="orders" className="mt-3">
-          <OrdersTable orders={orders} />
+          <OrdersTable orders={orders} deploymentId={d.id} />
         </TabsContent>
 
         {/* Fund Statement */}
@@ -845,6 +930,124 @@ function DeploymentDashboard({ deployment, onSettings, onAddFunds, onWithdraw, s
         </TabsContent>
       </Tabs>
     </div>
+  );
+}
+
+// ─── Deployment Rules Card ───
+
+function RuleRow({ label, value }: { label: string; value: string | number }) {
+  const isNA = value === "N/A" || value === "—";
+  return (
+    <div className="flex items-baseline justify-between py-1 gap-4">
+      <span className="text-[11px] text-muted-foreground shrink-0">{label}</span>
+      <span className={`text-[11px] tabular-nums text-right ${isNA ? "text-muted-foreground/40 italic" : "font-medium"}`}>
+        {String(value)}
+      </span>
+    </div>
+  );
+}
+
+function DeploymentRulesCard({ deployment: d }: { deployment: Deployment }) {
+  const [open, setOpen] = useState(false);
+  const isBoll = isBollingerStrategy(d.strategy_id);
+  const isAtr = d.strategy_id === "atr_dip_buyer";
+
+  const summaryParts: string[] = [
+    STRATEGY_LABELS[d.strategy_id] || d.strategy_id,
+    `\u20b9${(d.initial_capital / 100000).toFixed(0)}L`,
+    `${d.max_positions} pos`,
+    d.mode === "real" ? "REAL" : "Paper",
+  ];
+
+  return (
+    <Card data-testid="deployment-rules-card">
+      <CardHeader className="py-2 px-4 cursor-pointer" onClick={() => setOpen(!open)} data-testid="toggle-deployment-rules">
+        <CardTitle className="text-xs font-semibold flex items-center justify-between">
+          <span className="flex items-center gap-2">
+            <Info className="w-3.5 h-3.5 text-primary" />
+            Deployment Configuration
+            <span className="font-normal text-[10px] text-muted-foreground">
+              ({summaryParts.join(" \u00b7 ")})
+            </span>
+          </span>
+          {open ? <ChevronUp className="w-3.5 h-3.5" /> : <ChevronDown className="w-3.5 h-3.5" />}
+        </CardTitle>
+      </CardHeader>
+      {open && (
+        <CardContent className="px-4 pb-3 pt-0">
+          <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-x-6 gap-y-3">
+            {/* GENERAL */}
+            <div>
+              <h4 className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground/70 mb-1.5 border-b border-border pb-1">
+                General
+              </h4>
+              <RuleRow label="Deployment Name" value={d.name} />
+              <RuleRow label="Created" value={d.created_at} />
+              <RuleRow label="Mode" value={d.mode === "real" ? "Real Money" : "Paper"} />
+              <RuleRow label="Status" value={d.status.charAt(0).toUpperCase() + d.status.slice(1)} />
+              <RuleRow label="Strategy" value={STRATEGY_LABELS[d.strategy_id] || d.strategy_id} />
+            </div>
+
+            {/* POSITION SIZING */}
+            <div>
+              <h4 className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground/70 mb-1.5 border-b border-border pb-1">
+                Position Sizing
+              </h4>
+              <RuleRow label="Initial Capital" value={`\u20b9${(d.initial_capital / 100000).toFixed(1)}L`} />
+              <RuleRow label="Current Capital" value={`\u20b9${(d.current_capital / 100000).toFixed(1)}L`} />
+              <RuleRow label="Max Positions" value={d.max_positions} />
+              <RuleRow label="Per-Position" value={`\u20b9${Math.round(d.initial_capital / d.max_positions).toLocaleString("en-IN")}`} />
+              <RuleRow label="Allow Parallel" value={d.allow_parallel ? "Yes" : "No"} />
+            </div>
+
+            {/* ENTRY RULES */}
+            <div>
+              <h4 className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground/70 mb-1.5 border-b border-border pb-1 flex items-center gap-1">
+                <Crosshair className="w-3 h-3 text-primary" /> Entry Rules
+              </h4>
+              {isAtr && (
+                <>
+                  <RuleRow label="DMA Filter" value="Close > 200-DMA" />
+                  <RuleRow label="Dip Trigger" value="Close drops > 3%" />
+                  <RuleRow label="ATR Filter" value="ATR%Close > 3" />
+                  <RuleRow label="Limit Order" value="Close \u2212 0.9\u00d7ATR(5)" />
+                </>
+              )}
+              {isBoll && (
+                <>
+                  <RuleRow label="MA Period" value={d.ma_period} />
+                  <RuleRow label="Entry \u03c3" value={d.entry_band_sigma} />
+                  <RuleRow label="Target \u03c3" value={d.target_band_sigma} />
+                  <RuleRow label="Stop \u03c3" value={d.stop_loss_sigma} />
+                </>
+              )}
+              <RuleRow label="Universe" value={UNIVERSE_LABELS[d.universe] || d.universe || "Nifty 500"} />
+              <RuleRow label="Benchmark" value={BENCHMARK_LABELS[d.benchmark] || d.benchmark || "NIFTY 50"} />
+            </div>
+
+            {/* EXIT RULES */}
+            <div>
+              <h4 className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground/70 mb-1.5 border-b border-border pb-1 flex items-center gap-1">
+                <Clock className="w-3 h-3 text-primary" /> Exit Rules
+              </h4>
+              {isAtr && (
+                <>
+                  <RuleRow label="Profit Target" value="Entry + 0.5\u00d7ATR(5)" />
+                  <RuleRow label="Price Action" value="Close > prev day high" />
+                </>
+              )}
+              {isBoll && (
+                <RuleRow label="Profit Target" value={`Reach +${d.target_band_sigma}\u03c3 band`} />
+              )}
+              <RuleRow label="Absolute Stop" value={d.absolute_stop_pct != null ? `\u2212${d.absolute_stop_pct}% from entry` : "N/A"} />
+              <RuleRow label="Trailing Stop" value={d.trailing_stop_pct != null ? `\u2212${d.trailing_stop_pct}% from peak` : "N/A"} />
+              <RuleRow label="Max Hold Days" value={d.max_hold_days > 0 ? `${d.max_hold_days} trading days` : "No limit"} />
+              {d.last_run_date && <RuleRow label="Last Run" value={d.last_run_date} />}
+            </div>
+          </div>
+        </CardContent>
+      )}
+    </Card>
   );
 }
 
@@ -1081,11 +1284,15 @@ function orderStatusBadge(status: string): { cls: string } {
   }
 }
 
-function OrdersTable({ orders }: { orders: OrderLog[] }) {
+function OrdersTable({ orders, deploymentId }: { orders: OrderLog[]; deploymentId: number }) {
   const [sortField, setSortField] = useState<string>("placed_at");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
   const [retryingId, setRetryingId] = useState<number | null>(null);
+  const [cancellingId, setCancellingId] = useState<number | null>(null);
+  const [cancellingAll, setCancellingAll] = useState(false);
   const { toast } = useToast();
+
+  const pendingOrders = orders.filter(o => ['OPEN', 'PENDING', 'PLACED'].includes(o.status));
 
   const handleRetry = async (orderId: number) => {
     setRetryingId(orderId);
@@ -1101,6 +1308,42 @@ function OrdersTable({ orders }: { orders: OrderLog[] }) {
       toast({ title: "Retry failed", description: err.message, variant: "destructive" });
     } finally {
       setRetryingId(null);
+    }
+  };
+
+  const handleCancel = async (orderId: number) => {
+    setCancellingId(orderId);
+    try {
+      const res = await apiRequest("POST", `/api/orders/${orderId}/cancel`);
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.error || "Cancel failed");
+      }
+      toast({ title: "Order cancelled", description: "Order has been cancelled" });
+      queryClient.invalidateQueries();
+    } catch (err: any) {
+      toast({ title: "Cancel failed", description: err.message, variant: "destructive" });
+    } finally {
+      setCancellingId(null);
+    }
+  };
+
+  const handleCancelAll = async () => {
+    if (!window.confirm(`Cancel all ${pendingOrders.length} pending orders?`)) return;
+    setCancellingAll(true);
+    try {
+      const res = await apiRequest("POST", `/api/deployments/${deploymentId}/cancel-all-orders`);
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.error || "Bulk cancel failed");
+      }
+      const data = await res.json();
+      toast({ title: "Orders cancelled", description: `${data.cancelled}/${data.total} pending orders cancelled` });
+      queryClient.invalidateQueries();
+    } catch (err: any) {
+      toast({ title: "Bulk cancel failed", description: err.message, variant: "destructive" });
+    } finally {
+      setCancellingAll(false);
     }
   };
 
@@ -1131,6 +1374,25 @@ function OrdersTable({ orders }: { orders: OrderLog[] }) {
 
   return (
     <Card>
+      {/* Cancel All Pending header */}
+      {pendingOrders.length > 0 && (
+        <div className="flex items-center justify-between px-4 py-2 border-b border-border">
+          <span className="text-[11px] text-muted-foreground">
+            {pendingOrders.length} pending order{pendingOrders.length > 1 ? "s" : ""}
+          </span>
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-7 text-xs gap-1 text-loss hover:text-loss"
+            onClick={handleCancelAll}
+            disabled={cancellingAll}
+            data-testid="button-cancel-all-orders"
+          >
+            <Ban className={`w-3 h-3 ${cancellingAll ? "animate-spin" : ""}`} />
+            {cancellingAll ? "Cancelling..." : "Cancel All Pending"}
+          </Button>
+        </div>
+      )}
       <CardContent className="px-0 pb-0 pt-0">
         <div className="overflow-x-auto max-h-[500px] overflow-y-auto">
           <Table>
@@ -1179,18 +1441,33 @@ function OrdersTable({ orders }: { orders: OrderLog[] }) {
                     {o.kite_order_id || "—"}
                   </TableCell>
                   <TableCell className="text-right py-2 pr-4">
-                    {(o.status === "FAILED" || o.status === "REJECTED") && (
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        className="h-6 px-2 text-[10px]"
-                        disabled={retryingId === o.id}
-                        onClick={() => handleRetry(o.id)}
-                      >
-                        <RotateCw className={`w-3 h-3 mr-1 ${retryingId === o.id ? "animate-spin" : ""}`} />
-                        Retry
-                      </Button>
-                    )}
+                    <div className="flex items-center justify-end gap-1">
+                      {['OPEN', 'PENDING', 'PLACED'].includes(o.status) && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-6 px-2 text-[10px] text-loss hover:text-loss"
+                          disabled={cancellingId === o.id}
+                          onClick={() => handleCancel(o.id)}
+                          data-testid={`button-cancel-order-${i}`}
+                        >
+                          <XCircle className={`w-3 h-3 mr-1 ${cancellingId === o.id ? "animate-spin" : ""}`} />
+                          Cancel
+                        </Button>
+                      )}
+                      {(o.status === "FAILED" || o.status === "REJECTED") && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-6 px-2 text-[10px]"
+                          disabled={retryingId === o.id}
+                          onClick={() => handleRetry(o.id)}
+                        >
+                          <RotateCw className={`w-3 h-3 mr-1 ${retryingId === o.id ? "animate-spin" : ""}`} />
+                          Retry
+                        </Button>
+                      )}
+                    </div>
                   </TableCell>
                 </TableRow>
               ))}
@@ -1320,6 +1597,8 @@ function SettingsModal({ open, onClose, deployment }: {
     targetBandSigma: d.target_band_sigma,
     stopLossSigma: d.stop_loss_sigma,
     allowParallel: !!d.allow_parallel,
+    universe: d.universe || "nifty500",
+    benchmark: d.benchmark || "nifty50",
   });
 
   // Reset form when deployment changes
@@ -1334,6 +1613,8 @@ function SettingsModal({ open, onClose, deployment }: {
       targetBandSigma: d.target_band_sigma,
       stopLossSigma: d.stop_loss_sigma,
       allowParallel: !!d.allow_parallel,
+      universe: d.universe || "nifty500",
+      benchmark: d.benchmark || "nifty50",
     });
   }, [d]);
 
@@ -1344,6 +1625,8 @@ function SettingsModal({ open, onClose, deployment }: {
         maxHoldDays: form.maxHoldDays,
         absoluteStopPct: form.absoluteStopPct ? Number(form.absoluteStopPct) : null,
         trailingStopPct: form.trailingStopPct ? Number(form.trailingStopPct) : null,
+        universe: form.universe,
+        benchmark: form.benchmark,
       };
       if (isBollinger) {
         body.maPeriod = form.maPeriod;
@@ -1368,7 +1651,7 @@ function SettingsModal({ open, onClose, deployment }: {
 
   return (
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
-      <DialogContent className="max-w-md">
+      <DialogContent className="max-w-md max-h-[85vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="text-base">Deployment Settings</DialogTitle>
           <DialogDescription className="text-xs text-muted-foreground">
@@ -1413,6 +1696,36 @@ function SettingsModal({ open, onClose, deployment }: {
                 onChange={(e) => setForm({ ...form, trailingStopPct: e.target.value })}
                 className="h-9 text-xs" data-testid="settings-trailing-stop"
               />
+            </div>
+          </div>
+
+          {/* Universe + Benchmark */}
+          <div className="grid grid-cols-2 gap-3">
+            <div className="space-y-1.5">
+              <Label className="text-xs">Universe</Label>
+              <Select value={form.universe} onValueChange={(v) => setForm({ ...form, universe: v })}>
+                <SelectTrigger className="h-9 text-xs" data-testid="settings-universe">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {Object.entries(UNIVERSE_LABELS).map(([k, v]) => (
+                    <SelectItem key={k} value={k}>{v}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-1.5">
+              <Label className="text-xs">Benchmark</Label>
+              <Select value={form.benchmark} onValueChange={(v) => setForm({ ...form, benchmark: v })}>
+                <SelectTrigger className="h-9 text-xs" data-testid="settings-benchmark">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {Object.entries(BENCHMARK_LABELS).map(([k, v]) => (
+                    <SelectItem key={k} value={k}>{v}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
           </div>
 

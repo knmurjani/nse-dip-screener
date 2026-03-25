@@ -8,7 +8,7 @@ import { getBacktestResult, clearBacktestCache, runBacktest } from "./backtest";
 import { runBollingerMRBacktest } from "./backtest-bollinger-mr";
 import { NSE_UNIVERSE } from "./nse-universe";
 import Database from "better-sqlite3";
-import { logSystem, getSystemLogs, getChangelog, DB_PATH, istNow, getDeployments, getDeployment, getActiveDeployments, getDeploymentPositions, getDeploymentTrades, getDeploymentSnapshots, getFundTransactions, getDeploymentChangelog, getOrdersLog, insertOrder, updateOrderStatus, getOrder, getOrderByKiteId } from "./storage";
+import { logSystem, getSystemLogs, getChangelog, DB_PATH, istNow, getDeployments, getDeployment, getActiveDeployments, getDeploymentPositions, getDeploymentTrades, getDeploymentSnapshots, getFundTransactions, getDeploymentChangelog, getOrdersLog, insertOrder, updateOrderStatus, getOrder, getOrderByKiteId, getPendingOrders } from "./storage";
 import { getFilterBreakdown, clearFilterBreakdownCache } from "./filter-breakdown";
 import { getPortfolioSummary, runDailyLifecycle } from "./live-portfolio";
 import { runBollingerScreener, clearBollingerCache } from "./screener-bollinger";
@@ -776,20 +776,21 @@ export async function registerRoutes(
 
   app.post("/api/deployments", (req, res) => {
     try {
-      const { name, strategyId, mode, capital, maxPositions, maxHoldDays, absoluteStopPct, trailingStopPct, maPeriod, entryBandSigma, targetBandSigma, stopLossSigma, allowParallel } = req.body;
+      const { name, strategyId, mode, capital, maxPositions, maxHoldDays, absoluteStopPct, trailingStopPct, maPeriod, entryBandSigma, targetBandSigma, stopLossSigma, allowParallel, universe, benchmark } = req.body;
       if (!strategyId || !capital) return res.status(400).json({ error: "strategyId and capital are required" });
       const now = istNow();
       const deployName = name || `${strategyId} ${mode || 'paper'} ${now.split(" ")[0]}`;
       const sqliteDb = new Database(DB_PATH);
       const result = sqliteDb.prepare(`
-        INSERT INTO deployments (name, strategy_id, mode, status, created_at, initial_capital, current_capital, max_positions, max_hold_days, absolute_stop_pct, trailing_stop_pct, ma_period, entry_band_sigma, target_band_sigma, stop_loss_sigma, allow_parallel)
-        VALUES (?, ?, ?, 'active', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO deployments (name, strategy_id, mode, status, created_at, initial_capital, current_capital, max_positions, max_hold_days, absolute_stop_pct, trailing_stop_pct, ma_period, entry_band_sigma, target_band_sigma, stop_loss_sigma, allow_parallel, universe, benchmark)
+        VALUES (?, ?, ?, 'active', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).run(
         deployName, strategyId, mode || 'paper', now, capital, capital,
         maxPositions ?? 10, maxHoldDays ?? 0,
         absoluteStopPct ?? null, trailingStopPct ?? null,
         maPeriod ?? 20, entryBandSigma ?? 2, targetBandSigma ?? 2, stopLossSigma ?? 2,
-        allowParallel ? 1 : 0
+        allowParallel ? 1 : 0,
+        universe || 'nifty500', benchmark || 'nifty50'
       );
       const id = result.lastInsertRowid;
       // Record initial deposit in fund_transactions
@@ -839,7 +840,8 @@ export async function registerRoutes(
         absoluteStopPct: 'absolute_stop_pct', trailingStopPct: 'trailing_stop_pct',
         maPeriod: 'ma_period', entryBandSigma: 'entry_band_sigma',
         targetBandSigma: 'target_band_sigma', stopLossSigma: 'stop_loss_sigma',
-        allowParallel: 'allow_parallel'
+        allowParallel: 'allow_parallel',
+        universe: 'universe', benchmark: 'benchmark'
       };
       for (const [jsKey, dbCol] of Object.entries(updatableFields)) {
         if (req.body[jsKey] !== undefined) {
@@ -1082,6 +1084,99 @@ export async function registerRoutes(
       updateOrderStatus(orderId, { status: "FAILED", error_message: `Retry failed: ${err.message}` });
       res.status(500).json({ error: `Retry failed: ${err.message}` });
     }
+  });
+
+  // ─── Cancel Order ───
+
+  app.post("/api/orders/:orderId/cancel", async (req, res) => {
+    const orderId = parseInt(req.params.orderId);
+    const order = getOrder(orderId);
+    if (!order) return res.status(404).json({ error: "Order not found" });
+    if (!['OPEN', 'PENDING', 'PLACED'].includes(order.status)) {
+      return res.status(400).json({ error: `Can only cancel OPEN/PENDING/PLACED orders (current: ${order.status})` });
+    }
+
+    const deployment = getDeployment(order.deployment_id);
+    const isReal = deployment?.mode === 'real';
+
+    try {
+      // For real mode, cancel on Kite first
+      if (isReal && order.kite_order_id && isAuthenticated()) {
+        try {
+          await throttledKite(k => k.cancelOrder('regular', order.kite_order_id));
+        } catch (kiteErr: any) {
+          // Try AMO variety as fallback
+          try {
+            await throttledKite(k => k.cancelOrder('amo', order.kite_order_id));
+          } catch {
+            console.error(`[Cancel] Kite cancel failed for order ${order.kite_order_id}: ${kiteErr.message}`);
+            // Still update DB status — Kite may have already cancelled it
+          }
+        }
+      }
+
+      // Update DB status
+      updateOrderStatus(orderId, { status: 'CANCELLED' });
+      logSystem('orders', 'order_cancelled', `Order #${orderId} ${order.symbol} ${order.transaction_type} cancelled by user`);
+
+      // Send Telegram notification
+      try {
+        await sendTelegramMessage(
+          `\u274c <b>ORDER CANCELLED</b>\n${order.symbol} ${order.order_type} ${order.transaction_type} @ \u20b9${order.price || 'MKT'}\nQty: ${order.quantity} | Order #${orderId}${order.kite_order_id ? `\nKite ID: ${order.kite_order_id}` : ''}`
+        );
+      } catch { /* Telegram failure OK */ }
+
+      res.json(getOrder(orderId));
+    } catch (err: any) {
+      res.status(500).json({ error: `Cancel failed: ${err.message}` });
+    }
+  });
+
+  // ─── Cancel All Pending Orders for a Deployment ───
+
+  app.post("/api/deployments/:id/cancel-all-orders", async (req, res) => {
+    const deploymentId = parseInt(req.params.id);
+    const deployment = getDeployment(deploymentId);
+    if (!deployment) return res.status(404).json({ error: "Deployment not found" });
+
+    const pendingOrders = getPendingOrders(deploymentId);
+    if (pendingOrders.length === 0) {
+      return res.json({ cancelled: 0, message: "No pending orders to cancel" });
+    }
+
+    const isReal = deployment.mode === 'real';
+    let cancelledCount = 0;
+    const errors: string[] = [];
+
+    for (const order of pendingOrders) {
+      try {
+        // For real mode, cancel on Kite first
+        if (isReal && order.kite_order_id && isAuthenticated()) {
+          try {
+            await throttledKite(k => k.cancelOrder('regular', order.kite_order_id));
+          } catch {
+            try {
+              await throttledKite(k => k.cancelOrder('amo', order.kite_order_id));
+            } catch { /* continue anyway */ }
+          }
+        }
+        updateOrderStatus(order.id, { status: 'CANCELLED' });
+        cancelledCount++;
+      } catch (err: any) {
+        errors.push(`Order #${order.id} (${order.symbol}): ${err.message}`);
+      }
+    }
+
+    logSystem('orders', 'bulk_cancel', `Deployment #${deploymentId}: cancelled ${cancelledCount}/${pendingOrders.length} pending orders`);
+
+    // Send Telegram notification
+    try {
+      await sendTelegramMessage(
+        `\u274c <b>BULK ORDER CANCEL</b>\n${deployment.name}\nCancelled: ${cancelledCount}/${pendingOrders.length} pending orders`
+      );
+    } catch { /* Telegram failure OK */ }
+
+    res.json({ cancelled: cancelledCount, total: pendingOrders.length, errors: errors.length > 0 ? errors : undefined });
   });
 
   // ─── Lifecycle Manual Triggers ───

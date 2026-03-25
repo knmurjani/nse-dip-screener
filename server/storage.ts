@@ -447,6 +447,10 @@ sqlite.exec(`
   CREATE INDEX IF NOT EXISTS idx_snapshots_deployment_date ON deployment_snapshots(deployment_id, date);
 `);
 
+// Migration: add universe and benchmark columns to deployments
+try { sqlite.exec(`ALTER TABLE deployments ADD COLUMN universe TEXT DEFAULT 'nifty500'`); } catch {}
+try { sqlite.exec(`ALTER TABLE deployments ADD COLUMN benchmark TEXT DEFAULT 'nifty50'`); } catch {}
+
 // ─── IST Helper ───
 
 export function istNow(): string {
@@ -583,6 +587,12 @@ export function getOrder(orderId: number): any {
 
 export function getOrderByKiteId(kiteOrderId: string): any {
   return sqlite.prepare("SELECT * FROM orders_log WHERE kite_order_id = ? ORDER BY id DESC LIMIT 1").get(kiteOrderId);
+}
+
+export function getPendingOrders(deploymentId: number): any[] {
+  return sqlite.prepare(
+    "SELECT * FROM orders_log WHERE deployment_id = ? AND status IN ('OPEN', 'PENDING', 'PLACED') ORDER BY id DESC"
+  ).all(deploymentId);
 }
 
 // Log app startup
