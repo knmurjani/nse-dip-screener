@@ -2,7 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import {
   ComposedChart, Line, Area, XAxis, YAxis, CartesianGrid,
-  Tooltip as RTooltip, ResponsiveContainer,
+  Tooltip as RTooltip, ResponsiveContainer, ReferenceDot,
 } from "recharts";
 import { Loader2 } from "lucide-react";
 
@@ -74,6 +74,58 @@ function CandleDot(props: any) {
   );
 }
 
+/* ── Custom SVG label for entry/exit markers ── */
+function MarkerLabel({ viewBox, label, color }: { viewBox?: any; label: string; color: string }) {
+  if (!viewBox) return null;
+  const { x, y } = viewBox;
+  return (
+    <text
+      x={x}
+      y={y - 14}
+      textAnchor="middle"
+      fill={color}
+      fontSize={9}
+      fontWeight={700}
+      style={{ textShadow: "0 0 4px rgba(0,0,0,0.9), 0 0 2px rgba(0,0,0,0.8)" }}
+    >
+      {label}
+    </text>
+  );
+}
+
+/* ── Upward triangle shape for entry ── */
+function EntryTriangle(props: any) {
+  const { cx, cy } = props;
+  if (!cx || !cy) return null;
+  const size = 7;
+  const points = `${cx},${cy - size} ${cx - size},${cy + size} ${cx + size},${cy + size}`;
+  return (
+    <polygon
+      points={points}
+      fill="#22c55e"
+      stroke="#fff"
+      strokeWidth={0.8}
+      style={{ filter: "drop-shadow(0 0 3px rgba(34,197,94,0.6))" }}
+    />
+  );
+}
+
+/* ── Downward triangle shape for exit ── */
+function ExitTriangle({ cx, cy, color }: { cx?: number; cy?: number; color: string }) {
+  if (!cx || !cy) return null;
+  const size = 7;
+  const points = `${cx},${cy + size} ${cx - size},${cy - size} ${cx + size},${cy - size}`;
+  return (
+    <polygon
+      points={points}
+      fill={color}
+      stroke="#fff"
+      strokeWidth={0.8}
+      style={{ filter: `drop-shadow(0 0 3px ${color}88)` }}
+    />
+  );
+}
+
 export default function BollingerTradeChart({ symbol, entryDate, exitDate, entryPrice, exitPrice, exitReason, strategyId, dmaLength }: Props) {
   const querySymbol = symbol.includes(".NS") ? symbol : `${symbol}.NS`;
   const isATR = strategyId === "atr_dip_buyer";
@@ -110,16 +162,42 @@ export default function BollingerTradeChart({ symbol, entryDate, exitDate, entry
   const chartData = data.data;
   const hasDMA = chartData.some(d => d.dma !== undefined);
 
-  // Find min/max for better Y axis domain
+  // Find the closest date in chart data to entry/exit dates for marker placement
+  const findClosestDate = (targetDate: string): string | null => {
+    // Exact match first
+    const exact = chartData.find(d => d.date === targetDate);
+    if (exact) return exact.date;
+    // Find closest date
+    let closest: string | null = null;
+    let minDiff = Infinity;
+    for (const d of chartData) {
+      const diff = Math.abs(new Date(d.date).getTime() - new Date(targetDate).getTime());
+      if (diff < minDiff) {
+        minDiff = diff;
+        closest = d.date;
+      }
+    }
+    return closest;
+  };
+
+  const entryChartDate = findClosestDate(entryDate);
+  const exitChartDate = findClosestDate(exitDate);
+  const isLoss = exitPrice < entryPrice;
+  const exitColor = isLoss ? "#ef4444" : "#f59e0b";
+  const exitLabel = isLoss ? `STOP ₹${exitPrice.toFixed(0)}` : `SELL ₹${exitPrice.toFixed(0)}`;
+  const entryLabel = `BUY ₹${entryPrice.toFixed(0)}`;
+
+  // Find min/max for better Y axis domain (include entry/exit prices)
   const allValues = chartData.flatMap(d => {
     const vals = [d.high, d.low];
     if (!isATR) { vals.push(d.upperBand, d.lowerBand, d.stopBand); }
     if (d.dma) vals.push(d.dma);
     return vals;
   });
+  allValues.push(entryPrice, exitPrice);
   const minVal = Math.min(...allValues);
   const maxVal = Math.max(...allValues);
-  const padding = (maxVal - minVal) * 0.05;
+  const padding = (maxVal - minVal) * 0.08; // extra padding for marker labels
 
   return (
     <div className="px-2 py-3" data-testid={`trade-chart-${symbol}`}>
@@ -140,10 +218,13 @@ export default function BollingerTradeChart({ symbol, entryDate, exitDate, entry
                 <span className="w-3 h-[2px] bg-[#9ca3af] inline-block rounded" /> 20-DMA
               </span>
               <span className="flex items-center gap-1">
-                <span className="w-3 h-[1px] inline-block" style={{ borderTop: "1px dashed #60a5fa" }} /> ±2σ
+                <span className="w-3 h-[1px] inline-block" style={{ borderTop: "1px dashed #22c55e" }} /> +2σ
               </span>
               <span className="flex items-center gap-1">
-                <span className="w-3 h-[1px] inline-block" style={{ borderTop: "1px dashed #991b1b" }} /> −3σ
+                <span className="w-3 h-[1px] inline-block" style={{ borderTop: "1px dashed #f87171" }} /> −2σ
+              </span>
+              <span className="flex items-center gap-1">
+                <span className="w-3 h-[1px] inline-block" style={{ borderTop: "1px dashed #dc2626" }} /> −3σ
               </span>
             </>
           )}
@@ -197,21 +278,21 @@ export default function BollingerTradeChart({ symbol, entryDate, exitDate, entry
               {/* Upper band (+2σ) */}
               <Line
                 type="monotone" dataKey="upperBand"
-                stroke="#60a5fa" strokeWidth={1} strokeDasharray="4 2"
+                stroke="#22c55e" strokeWidth={1} strokeDasharray="4 2"
                 dot={false} name="upperBand" isAnimationActive={false}
               />
 
               {/* Lower band (-2σ) */}
               <Line
                 type="monotone" dataKey="lowerBand"
-                stroke="#60a5fa" strokeWidth={1} strokeDasharray="4 2"
+                stroke="#f87171" strokeWidth={1} strokeDasharray="4 2"
                 dot={false} name="lowerBand" isAnimationActive={false}
               />
 
               {/* Stop band (-3σ) */}
               <Line
                 type="monotone" dataKey="stopBand"
-                stroke="#991b1b" strokeWidth={1} strokeDasharray="3 3"
+                stroke="#dc2626" strokeWidth={1} strokeDasharray="3 3"
                 dot={false} name="stopBand" isAnimationActive={false}
               />
 
@@ -244,8 +325,29 @@ export default function BollingerTradeChart({ symbol, entryDate, exitDate, entry
           <Line type="monotone" dataKey="high" stroke="transparent" dot={false} name="high" isAnimationActive={false} />
           <Line type="monotone" dataKey="low" stroke="transparent" dot={false} name="low" isAnimationActive={false} />
 
+          {/* Entry marker — green upward triangle */}
+          {entryChartDate && (
+            <ReferenceDot
+              x={entryChartDate}
+              y={entryPrice}
+              r={0}
+              shape={<EntryTriangle />}
+              isFront
+              label={<MarkerLabel label={entryLabel} color="#22c55e" />}
+            />
+          )}
 
-
+          {/* Exit marker — red/gold downward triangle */}
+          {exitChartDate && (
+            <ReferenceDot
+              x={exitChartDate}
+              y={exitPrice}
+              r={0}
+              shape={<ExitTriangle color={exitColor} />}
+              isFront
+              label={<MarkerLabel label={exitLabel} color={exitColor} />}
+            />
+          )}
 
         </ComposedChart>
       </ResponsiveContainer>
