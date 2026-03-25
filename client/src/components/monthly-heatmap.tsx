@@ -24,6 +24,7 @@ export interface MonthlyHeatmapProps {
   title?: string;
   showBenchmark?: boolean;
   showExcess?: boolean;
+  benchmarkName?: string;
 }
 
 interface MonthlyReturn {
@@ -307,6 +308,7 @@ export default function MonthlyHeatmap({
   title = "Monthly Returns Heatmap",
   showBenchmark = true,
   showExcess = true,
+  benchmarkName = "NIFTY 50",
 }: MonthlyHeatmapProps) {
   const {
     strategyGrid,
@@ -364,15 +366,15 @@ export default function MonthlyHeatmap({
         {/* Nifty 50 Benchmark */}
         {showBench && (
           <div className="space-y-2 pt-2 border-t border-border">
-            <HeatmapTable grid={benchmarkGrid} label="Nifty 50 Monthly Returns" />
-            <StatsRow stats={benchmarkStats} label="Nifty" />
+            <HeatmapTable grid={benchmarkGrid} label={`${benchmarkName} Monthly Returns`} />
+            <StatsRow stats={benchmarkStats} label={benchmarkName} />
           </div>
         )}
 
         {/* Excess Returns */}
         {showExc && (
           <div className="space-y-2 pt-2 border-t border-border">
-            <HeatmapTable grid={excessGrid} label="Excess Returns (Strategy − Nifty)" />
+            <HeatmapTable grid={excessGrid} label={`Excess Returns (Strategy − ${benchmarkName})`} />
           </div>
         )}
       </CardContent>

@@ -108,6 +108,8 @@ export interface BollingerMRParams {
   absoluteStopPct?: number;
   trailingStopPct?: number;
   universeOverride?: typeof NSE_UNIVERSE; // optional filtered universe
+  benchmarkTicker?: string; // Yahoo Finance ticker for benchmark (default: ^NSEI)
+  benchmarkLabel?: string;  // Human-readable benchmark name
 }
 
 interface OpenPosition {
@@ -196,8 +198,9 @@ export async function runBollingerMRBacktest(params: BollingerMRParams): Promise
   const useKite = isAuthenticated();
   console.log(`[BollMR-BT] ${yearsLabel}yr (${startStr} → ${to}), ₹${(CAPITAL/1e5).toFixed(0)}L, ${MAX_POS} pos, ${MA_PERIOD}MA, entry/stop ±${ENTRY_SIGMA}σ, target +${TARGET_SIGMA}σ, parallel=${ALLOW_PARALLEL}`);
 
-  // Fetch Nifty 50
-  const niftyBars = await fetchBars("^NSEI", from, to) || [];
+  // Fetch benchmark
+  const bmTicker = params.benchmarkTicker || "^NSEI";
+  const niftyBars = await fetchBars(bmTicker, from, to) || [];
   const niftyByDate: Map<string, number> = new Map();
   for (const b of niftyBars) niftyByDate.set(b.date, b.close);
 

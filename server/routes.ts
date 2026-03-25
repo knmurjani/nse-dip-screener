@@ -381,11 +381,31 @@ export async function registerRoutes(
 
       // Filter universe based on selection
       let filteredUniverse = NSE_UNIVERSE;
-      let universeLabel = "Nifty 500";
+      let universeLabel = "All NSE";
       let universeSize = NSE_UNIVERSE.length;
       if (universe === "nifty50") { filteredUniverse = NSE_UNIVERSE.slice(0, 50); universeLabel = "Nifty 50"; universeSize = 50; }
       else if (universe === "nifty100") { filteredUniverse = NSE_UNIVERSE.slice(0, 100); universeLabel = "Nifty 100"; universeSize = 100; }
       else if (universe === "nifty200") { filteredUniverse = NSE_UNIVERSE.slice(0, 200); universeLabel = "Nifty 200"; universeSize = 200; }
+      else if (universe === "nifty500") { filteredUniverse = NSE_UNIVERSE.slice(0, 500); universeLabel = "Nifty 500"; universeSize = Math.min(500, NSE_UNIVERSE.length); }
+      // else "all" or default: use full NSE_UNIVERSE
+
+      // Map benchmark selection to Yahoo Finance ticker symbol
+      const benchmarkTickerMap: Record<string, string> = {
+        nifty50: "^NSEI",
+        niftynext50: "^NSMIDCP",  // NIFTY NEXT 50 — approximate
+        nifty100: "^CNX100",
+        nifty200: "^CNX200",
+        nifty500: "^CRSLDX",      // NIFTY 500
+        niftymidcap100: "^NSEMDCP50",  // NIFTY MIDCAP proxy
+        niftysmallcap100: "NIFTYSMLCAP100.NS",
+      };
+      const benchmarkLabelMap: Record<string, string> = {
+        nifty50: "NIFTY 50", niftynext50: "NIFTY NEXT 50", nifty100: "NIFTY 100",
+        nifty200: "NIFTY 200", nifty500: "NIFTY 500",
+        niftymidcap100: "NIFTY MIDCAP 100", niftysmallcap100: "NIFTY SMALLCAP 100",
+      };
+      const benchmarkTicker = benchmarkTickerMap[benchmark || "nifty50"] || "^NSEI";
+      const benchmarkLabel = benchmarkLabelMap[benchmark || "nifty50"] || "NIFTY 50";
 
       let result;
       const commonParams = { capitalRs: capital || 1000000, maxPositions: maxPositions || 10, lookbackYears: years || 5 };
@@ -406,6 +426,8 @@ export async function registerRoutes(
           absoluteStopPct: absoluteStopPct || undefined,
           trailingStopPct: trailingStopPct || undefined,
           universeOverride: filteredUniverse,
+          benchmarkTicker,
+          benchmarkLabel,
           ...bollingerConditions,
         });
       } else {
@@ -424,6 +446,8 @@ export async function registerRoutes(
           profitTargetMultiple: profitTargetMultiple !== undefined ? profitTargetMultiple : undefined,
           priceActionExit: priceActionExit !== undefined ? priceActionExit : undefined,
           universeOverride: filteredUniverse,
+          benchmarkTicker,
+          benchmarkLabel,
         });
       }
 
@@ -481,7 +505,7 @@ export async function registerRoutes(
         ...commonParams, strategyId: strategy, absoluteStopPct, trailingStopPct,
         maPeriod, entryBandSigma, stopLossSigma, targetBandSigma, maxHoldDays, fromDate, toDate,
         allowParallelPositions,
-        universe: universe || "nifty500", benchmark: benchmark || "nifty50",
+        universe: universe || "nifty500", benchmark: benchmark || "nifty50", benchmarkLabel,
         // Configurable conditions
         watchlistCondition, entryCondition, exitTarget, exitStopBand,
         // ATR-specific params

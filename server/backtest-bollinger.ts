@@ -95,6 +95,8 @@ export interface BollingerBacktestParams {
   exitTarget?: string;
   exitStopBand?: string;
   universeOverride?: typeof NSE_UNIVERSE; // optional filtered universe
+  benchmarkTicker?: string; // Yahoo Finance ticker for benchmark (default: ^NSEI)
+  benchmarkLabel?: string;  // Human-readable benchmark name
 }
 
 interface OpenPosition {
@@ -112,7 +114,7 @@ export async function runBollingerBacktest(params: BollingerBacktestParams): Pro
   const MA_PERIOD = params.maPeriod || 20;
   const ENTRY_SIGMA = params.entryBandSigma || 2;
   const STOP_SIGMA = params.stopLossSigma || 3;
-  const MAX_HOLD = params.maxHoldDays || 10;
+  const MAX_HOLD = params.maxHoldDays || 0; // 0 = no time exit by default
   const ABS_STOP = params.absoluteStopPct; // undefined = disabled
   const TRAIL_STOP = params.trailingStopPct; // undefined = disabled
   const universe = params.universeOverride || NSE_UNIVERSE;
@@ -140,8 +142,9 @@ export async function runBollingerBacktest(params: BollingerBacktestParams): Pro
   const useKite = isAuthenticated();
   console.log(`[BollingerBT] ${yearsLabel}yr (${startStr} → ${to}), ₹${(CAPITAL/1e5).toFixed(0)}L, ${MAX_POS} pos, ${MA_PERIOD}MA, ±${ENTRY_SIGMA}σ entry, -${STOP_SIGMA}σ stop`);
 
-  // Fetch Nifty 50
-  const niftyBars = await fetchBars("^NSEI", from, to) || [];
+  // Fetch benchmark
+  const bmTicker = params.benchmarkTicker || "^NSEI";
+  const niftyBars = await fetchBars(bmTicker, from, to) || [];
   const niftyByDate: Map<string, number> = new Map();
   for (const b of niftyBars) niftyByDate.set(b.date, b.close);
 
@@ -181,6 +184,8 @@ export async function runBollingerBacktest(params: BollingerBacktestParams): Pro
   let peakValue = CAPITAL;
   const niftyStart = niftyByDate.get(sortedDates[0]) || 0;
 
+  // Track which stocks are on the watchlist (close < -3σ triggers watchlist)
+  const watchlist: Set<string> = new Set();
   // Track which stocks were below -2σ yesterday (for crossover detection)
   const wasBelowBand: Map<string, boolean> = new Map();
 
@@ -218,24 +223,23 @@ export async function runBollingerBacktest(params: BollingerBacktestParams): Pro
       let exitReason: Trade["exitReason"] | null = null;
       let exitDetail = "";
 
-      // Exit 1: Mean reversion target — price reaches 20-DMA (the mean)
+      // Exit 1: Profit target — close reaches +2σ (upper band)
       const ma = computeSMA(bars, tIdx, MA_PERIOD);
-      if (bar.high >= ma) {
-        // Exit at close (or mean if close is above mean) — more realistic than exact band fill
-        exitPrice = Math.max(ma, bar.close);
+      const stdExit = computeStdDev(bars, tIdx, MA_PERIOD);
+      const upperBand = ma + ENTRY_SIGMA * stdExit;
+      if (bar.close >= upperBand) {
+        exitPrice = bar.close;
         exitReason = "profit_target";
-        exitDetail = `✅ MEAN TARGET: High ₹${bar.high.toFixed(2)} ≥ ${MA_PERIOD}-DMA ₹${ma.toFixed(2)} — mean reversion complete`;
+        exitDetail = `✅ +${ENTRY_SIGMA}σ TARGET: Close ₹${bar.close.toFixed(2)} ≥ +${ENTRY_SIGMA}σ ₹${upperBand.toFixed(2)} — mean reversion complete`;
       }
 
-      // Exit 2: Stop loss — drops to -3σ band
+      // Exit 2: Stop loss — close drops below -3σ band
       if (!exitReason) {
-        const std = computeStdDev(bars, tIdx, MA_PERIOD);
-        const stopBand = ma - STOP_SIGMA * std;
-        if (bar.low <= stopBand) {
-          // Exit at close price (not exact band level)
+        const stopBand = ma - STOP_SIGMA * stdExit;
+        if (bar.close < stopBand) {
           exitPrice = bar.close;
           exitReason = "price_action_close_above_prev_high";
-          exitDetail = `🛑 −${STOP_SIGMA}σ STOP: Low ₹${bar.low.toFixed(2)} ≤ −${STOP_SIGMA}σ band ₹${stopBand.toFixed(2)} — extreme deviation, cut loss`;
+          exitDetail = `🛑 −${STOP_SIGMA}σ STOP: Close ₹${bar.close.toFixed(2)} < −${STOP_SIGMA}σ band ₹${stopBand.toFixed(2)} — extreme deviation, cut loss`;
         }
       }
 
@@ -259,8 +263,8 @@ export async function runBollingerBacktest(params: BollingerBacktestParams): Pro
         }
       }
 
-      // Exit 5: Time exit
-      if (!exitReason && pos.tradingDaysHeld >= MAX_HOLD) {
+      // Exit 5: Time exit (only if MAX_HOLD > 0)
+      if (!exitReason && MAX_HOLD > 0 && pos.tradingDaysHeld >= MAX_HOLD) {
         exitPrice = bar.close;
         exitReason = "time_exit_10_days";
         exitDetail = `⏰ TIME EXIT: Held ${pos.tradingDaysHeld} days ≥ ${MAX_HOLD} day limit — exit at close ₹${bar.close.toFixed(2)}`;
@@ -292,56 +296,73 @@ export async function runBollingerBacktest(params: BollingerBacktestParams): Pro
     }
     for (const idx of toClose.reverse()) openPositions.splice(idx, 1);
 
-    // ─── Check for new Bollinger signals ───
-    if (openPositions.length < MAX_POS) {
-      const candidates: {
-        symbol: string; name: string; date: string; close: number;
-        ma: number; std: number; setupScore: number; target: number; stop: number;
-      }[] = [];
+    // ─── Scan all stocks for watchlist + entry signals ───
+    const candidates: {
+      symbol: string; name: string; date: string; close: number;
+      ma: number; std: number; setupScore: number; target: number; stop: number;
+    }[] = [];
 
-      // Track recently closed symbols to prevent re-entry on same day
-      const recentlyClosed = new Set(trades.filter(t => t.exitDate === today).map(t => t.symbol + ".NS"));
+    // Track recently closed symbols to prevent re-entry on same day
+    const recentlyClosed = new Set(trades.filter(t => t.exitDate === today).map(t => t.symbol + ".NS"));
 
-      for (const [symbol, bars] of allBars.entries()) {
-        // No duplicate positions (same ticker can't have 2 open)
-        if (openPositions.some(p => p.symbol === symbol)) continue;
-        if (recentlyClosed.has(symbol)) continue;
-        const idxMap = barIndex.get(symbol);
-        if (!idxMap) continue;
-        const tIdx = idxMap.get(today);
-        if (tIdx === undefined || tIdx < MA_PERIOD + 1) continue;
+    for (const [symbol, bars] of allBars.entries()) {
+      const idxMap = barIndex.get(symbol);
+      if (!idxMap) continue;
+      const tIdx = idxMap.get(today);
+      if (tIdx === undefined || tIdx < MA_PERIOD + 1) continue;
 
-        const bar = bars[tIdx];
-        const prevBar = bars[tIdx - 1];
-        const ma = computeSMA(bars, tIdx, MA_PERIOD);
-        const std = computeStdDev(bars, tIdx, MA_PERIOD);
-        if (ma === 0 || std === 0) continue;
+      const bar = bars[tIdx];
+      const prevBar = bars[tIdx - 1];
+      const ma = computeSMA(bars, tIdx, MA_PERIOD);
+      const std = computeStdDev(bars, tIdx, MA_PERIOD);
+      if (ma === 0 || std === 0) continue;
 
-        const lowerBand = ma - ENTRY_SIGMA * std;
-        const prevMa = computeSMA(bars, tIdx - 1, MA_PERIOD);
-        const prevStd = computeStdDev(bars, tIdx - 1, MA_PERIOD);
-        const prevLower = prevMa - ENTRY_SIGMA * prevStd;
+      const lowerBand2 = ma - ENTRY_SIGMA * std;  // -2σ (entry threshold)
+      const lowerBand3 = ma - STOP_SIGMA * std;    // -3σ (watchlist trigger)
 
-        // Signal: was below -2σ yesterday, crossed above -2σ today
-        const wasBelowYesterday = prevBar.close < prevLower;
-        const isAboveToday = bar.close >= lowerBand;
-
-        // Track state
-        const prevWasBelow = wasBelowBand.get(symbol) || false;
-        wasBelowBand.set(symbol, bar.close < lowerBand);
-
-        if ((wasBelowYesterday || prevWasBelow) && isAboveToday) {
-          const distToMean = ((ma - bar.close) / bar.close) * 100;
-          candidates.push({
-            symbol, name: universe.find(s => s.symbol === symbol)?.name || symbol.replace(".NS", ""),
-            date: today, close: bar.close, ma, std,
-            setupScore: Math.abs(distToMean), // deeper dip = higher conviction
-            target: ma,
-            stop: ma - STOP_SIGMA * std,
-          });
+      // Phase 1: Add to watchlist if close < -3σ (always track, regardless of open positions)
+      if (bar.close < lowerBand3) {
+        if (!openPositions.some(p => p.symbol === symbol)) {
+          watchlist.add(symbol);
         }
+        wasBelowBand.set(symbol, true);
+        continue; // still deeply below, don't check entry
       }
 
+      // Phase 2: Entry — must be on watchlist AND cross above -2σ
+      if (watchlist.has(symbol)) {
+        const prevMa = computeSMA(bars, tIdx - 1, MA_PERIOD);
+        const prevStd = computeStdDev(bars, tIdx - 1, MA_PERIOD);
+        const prevLowerBand2 = prevMa - ENTRY_SIGMA * prevStd;
+        const wasBelowYesterday = prevBar.close < prevLowerBand2;
+        const prevWasBelow = wasBelowBand.get(symbol) || false;
+        const isAboveToday = bar.close >= lowerBand2;
+
+        wasBelowBand.set(symbol, bar.close < lowerBand2);
+
+        if ((wasBelowYesterday || prevWasBelow) && isAboveToday) {
+          // Skip if already in a position or recently closed
+          if (!openPositions.some(p => p.symbol === symbol) && !recentlyClosed.has(symbol)) {
+            const upperBand = ma + ENTRY_SIGMA * std;
+            const distToTarget = ((upperBand - bar.close) / bar.close) * 100;
+            candidates.push({
+              symbol, name: universe.find(s => s.symbol === symbol)?.name || symbol.replace(".NS", ""),
+              date: today, close: bar.close, ma, std,
+              setupScore: Math.abs(distToTarget), // deeper dip = higher conviction
+              target: upperBand,
+              stop: lowerBand3,
+            });
+          }
+          watchlist.delete(symbol);
+        }
+      } else {
+        // Not on watchlist — track below-band state for potential future watchlist entry
+        wasBelowBand.set(symbol, bar.close < lowerBand2);
+      }
+    }
+
+    // Enter positions if there are available slots
+    if (openPositions.length < MAX_POS && candidates.length > 0) {
       candidates.sort((a, b) => b.setupScore - a.setupScore);
       const slots = MAX_POS - openPositions.length;
 

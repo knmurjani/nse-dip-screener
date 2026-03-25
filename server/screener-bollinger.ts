@@ -174,10 +174,13 @@ export async function runBollingerScreener(): Promise<BollingerScreenerResult> {
         const lowerBand3 = ma20 - 3 * stdDev;
         const upperBand2 = ma20 + 2 * stdDev;
         const zScore = (close - ma20) / stdDev;
+        const belowMinus3 = close < lowerBand3;
         const belowMinus2 = close < lowerBand2;
         const distanceToMeanPct = ((ma20 - close) / close) * 100;
 
         // Check if it crossed above −2σ today (was below yesterday, above today)
+        // Watchlist trigger: close < −3σ → add to watchlist
+        // Entry signal: close crosses above −2σ (was below −2σ yesterday, above today)
         const prevCloseVal = bars.length >= 2 ? bars[bars.length - 2].close : prevClose;
         const prevMa20 = bars.length >= 22 ? computeSMA(bars.slice(0, -1).map(b => b.close), 20) : ma20;
         const prevStd = bars.length >= 22 ? computeStdDev(bars.slice(0, -1).map(b => b.close), 20) : stdDev;
@@ -186,6 +189,7 @@ export async function runBollingerScreener(): Promise<BollingerScreenerResult> {
 
         let status = "neutral";
         if (crossedAboveMinus2) { status = "signal"; crossedAboveCount++; }
+        else if (belowMinus3) { status = "watchlist"; belowMinus2Count++; }
         else if (belowMinus2) { status = "watchlist"; belowMinus2Count++; }
 
         const signal: BollingerSignal = {

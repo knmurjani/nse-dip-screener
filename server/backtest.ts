@@ -184,6 +184,8 @@ export interface ATRBacktestParams {
   profitTargetMultiple?: number; // default 0.5 (can be 0.3, 0.5, 0.7, 1.0)
   priceActionExit?: boolean;   // default true (close > prev high)
   universeOverride?: typeof NSE_UNIVERSE; // optional filtered universe
+  benchmarkTicker?: string; // Yahoo Finance ticker for benchmark (default: ^NSEI)
+  benchmarkLabel?: string;  // Human-readable benchmark name
 }
 
 interface OpenPosition {
@@ -233,7 +235,8 @@ export async function runBacktest(params: ATRBacktestParams): Promise<BacktestRe
   console.log(`[Backtest] ${yearsLabel}yr (${startStr} → ${to}), ₹${(CAPITAL/1e5).toFixed(0)}L, ${MAX_POS} max pos, hold ${MAX_HOLD}d, DMA=${DMA_LEN}, dip=${DIP_THRESH}%, atrFilt=${ATR_FILTER}, limit=${LIMIT_MULT}×ATR, profit=${PROFIT_MULT}×ATR, priceAction=${PRICE_ACTION_EXIT}, absStop=${ABS_STOP ?? 'off'}, trailStop=${TRAIL_STOP ?? 'off'}, via ${useKite ? "Kite" : "Yahoo"}`);
 
   // ─── Fetch Nifty 50 for correlation ───
-  const niftyBars = await fetchBars("^NSEI", from, to) || await fetchBars("NIFTY_50.NS", from, to) || [];
+  const bmTicker = params.benchmarkTicker || "^NSEI";
+  const niftyBars = await fetchBars(bmTicker, from, to) || await fetchBars("NIFTY_50.NS", from, to) || [];
   const niftyByDate: Map<string, number> = new Map();
   for (const b of niftyBars) niftyByDate.set(b.date, b.close);
 

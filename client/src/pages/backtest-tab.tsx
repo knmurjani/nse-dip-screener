@@ -144,9 +144,9 @@ export default function BacktestTab() {
   const [formTargetBandSigma, setFormTargetBandSigma] = useState("2");
   const [formAllowParallel, setFormAllowParallel] = useState(false);
   // Form state — Configurable conditions (dropdowns)
-  const [formWatchlistCond, setFormWatchlistCond] = useState("below_-2s");
+  const [formWatchlistCond, setFormWatchlistCond] = useState("below_-3s");
   const [formEntryCond, setFormEntryCond] = useState("cross_above_-2s");
-  const [formExitTarget, setFormExitTarget] = useState("reach_mean");
+  const [formExitTarget, setFormExitTarget] = useState("reach_+2s");
   const [formExitStopBand, setFormExitStopBand] = useState("below_-3s");
   // Form state — Universe & Benchmark
   const [formUniverse, setFormUniverse] = useState("nifty500");
@@ -287,7 +287,16 @@ export default function BacktestTab() {
     return computeAllMonthlyData(data.dailySnapshots, s.initialCapital);
   }, [data?.dailySnapshots, s]);
 
-  // Nifty benchmark summary stats
+  // Resolve benchmark label from saved params
+  const benchmarkName = useMemo(() => {
+    if (!activeRun?.params_json) return "NIFTY 50";
+    try {
+      const p = JSON.parse(activeRun.params_json);
+      return p.benchmarkLabel || "NIFTY 50";
+    } catch { return "NIFTY 50"; }
+  }, [activeRun?.params_json]);
+
+  // Benchmark summary stats
   const niftySummary = useMemo(() => {
     if (!data?.dailySnapshots || data.dailySnapshots.length < 2) return null;
     const snaps = data.dailySnapshots;
@@ -298,7 +307,7 @@ export default function BacktestTab() {
     const days = Math.max(1, (new Date(lastNifty.date).getTime() - new Date(firstNifty.date).getTime()) / (1000 * 60 * 60 * 24));
     const years = days / 365.25;
     const annualizedPct = years > 0 ? (Math.pow(1 + totalReturnPct / 100, 1 / years) - 1) * 100 : totalReturnPct;
-    // Max drawdown for Nifty
+    // Max drawdown for benchmark
     let peak = firstNifty.niftyClose;
     let maxDD = 0;
     for (const d of snaps) {
@@ -440,10 +449,11 @@ export default function BacktestTab() {
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="nifty500" className="text-xs">Nifty 500 (Full)</SelectItem>
-                    <SelectItem value="nifty200" className="text-xs">Nifty 200 (Large + Mid)</SelectItem>
-                    <SelectItem value="nifty100" className="text-xs">Nifty 100 (Large Cap)</SelectItem>
-                    <SelectItem value="nifty50" className="text-xs">Nifty 50 (Blue Chip)</SelectItem>
+                    <SelectItem value="all" className="text-xs">All NSE</SelectItem>
+                    <SelectItem value="nifty500" className="text-xs">Nifty 500</SelectItem>
+                    <SelectItem value="nifty200" className="text-xs">Nifty 200</SelectItem>
+                    <SelectItem value="nifty100" className="text-xs">Nifty 100</SelectItem>
+                    <SelectItem value="nifty50" className="text-xs">Nifty 50</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -454,7 +464,13 @@ export default function BacktestTab() {
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="nifty50" className="text-xs">Nifty 50</SelectItem>
+                    <SelectItem value="nifty50" className="text-xs">NIFTY 50</SelectItem>
+                    <SelectItem value="niftynext50" className="text-xs">NIFTY NEXT 50</SelectItem>
+                    <SelectItem value="nifty100" className="text-xs">NIFTY 100</SelectItem>
+                    <SelectItem value="nifty200" className="text-xs">NIFTY 200</SelectItem>
+                    <SelectItem value="nifty500" className="text-xs">NIFTY 500</SelectItem>
+                    <SelectItem value="niftymidcap100" className="text-xs">NIFTY MIDCAP 100</SelectItem>
+                    <SelectItem value="niftysmallcap100" className="text-xs">NIFTY SMALLCAP 100</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
@@ -808,13 +824,29 @@ export default function BacktestTab() {
           </div>
 
           {/* ── Summary Dashboard ── */}
-          {niftySummary && (
-            <div className="flex items-center gap-2">
-              <Badge variant="outline" className="text-[10px] px-2 py-0.5 text-muted-foreground border-muted-foreground/30">
-                vs Nifty 50
-              </Badge>
-            </div>
-          )}
+          {/* Hero: Annualized Return (prominent) + Benchmark comparison */}
+          <Card className="border-primary/20" data-testid="hero-annualized">
+            <CardContent className="p-4">
+              <div className="flex flex-col sm:flex-row sm:items-end gap-3 sm:gap-6">
+                <div>
+                  <p className="text-[11px] text-muted-foreground font-medium mb-0.5">Strategy Annualized Return</p>
+                  <p className={`text-3xl font-extrabold tabular-nums ${s.annualizedReturnPct >= 0 ? "text-gain" : "text-loss"}`}>
+                    {s.annualizedReturnPct >= 0 ? "+" : ""}{s.annualizedReturnPct.toFixed(1)}%
+                  </p>
+                </div>
+                {niftySummary && (
+                  <div className="pb-0.5">
+                    <p className="text-[10px] text-muted-foreground/70">
+                      {benchmarkName}: <span className="tabular-nums font-medium text-muted-foreground">{niftySummary.annualizedPct >= 0 ? "+" : ""}{niftySummary.annualizedPct.toFixed(1)}%</span> ann.
+                    </p>
+                    <p className={`text-[11px] tabular-nums font-semibold ${(s.annualizedReturnPct - niftySummary.annualizedPct) >= 0 ? "text-gain" : "text-loss"}`}>
+                      Alpha: {(s.annualizedReturnPct - niftySummary.annualizedPct) >= 0 ? "+" : ""}{(s.annualizedReturnPct - niftySummary.annualizedPct).toFixed(1)}%
+                    </p>
+                  </div>
+                )}
+              </div>
+            </CardContent>
+          </Card>
 
           {/* Row 1: 4 primary KPIs */}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3" data-testid="kpi-row-1">
@@ -824,7 +856,7 @@ export default function BacktestTab() {
               subColor={s.totalReturnPct >= 0 ? "text-gain" : "text-loss"}
               icon={<TrendingUp className="w-4 h-4" />}
               testId="kpi-total-return"
-              benchmarkLine={niftySummary ? `Nifty 50: ${niftySummary.totalReturnPct >= 0 ? "+" : ""}${niftySummary.totalReturnPct.toFixed(1)}%` : undefined}
+              benchmarkLine={niftySummary ? `${benchmarkName}: ${niftySummary.totalReturnPct >= 0 ? "+" : ""}${niftySummary.totalReturnPct.toFixed(1)}%` : undefined}
               alphaLine={niftySummary ? { text: `Alpha: ${(s.totalReturnPct - niftySummary.totalReturnPct) >= 0 ? "+" : ""}${(s.totalReturnPct - niftySummary.totalReturnPct).toFixed(1)}%`, positive: s.totalReturnPct - niftySummary.totalReturnPct >= 0 } : undefined}
             />
             <MetricCard
@@ -833,7 +865,7 @@ export default function BacktestTab() {
               subColor={s.annualizedReturnPct >= 0 ? "text-gain" : "text-loss"}
               icon={<Activity className="w-4 h-4" />}
               testId="kpi-annualized-return"
-              benchmarkLine={niftySummary ? `Nifty 50: ${niftySummary.annualizedPct >= 0 ? "+" : ""}${niftySummary.annualizedPct.toFixed(1)}%` : undefined}
+              benchmarkLine={niftySummary ? `${benchmarkName}: ${niftySummary.annualizedPct >= 0 ? "+" : ""}${niftySummary.annualizedPct.toFixed(1)}%` : undefined}
               alphaLine={niftySummary ? { text: `Alpha: ${(s.annualizedReturnPct - niftySummary.annualizedPct) >= 0 ? "+" : ""}${(s.annualizedReturnPct - niftySummary.annualizedPct).toFixed(1)}%`, positive: s.annualizedReturnPct - niftySummary.annualizedPct >= 0 } : undefined}
             />
             <MetricCard
@@ -866,7 +898,7 @@ export default function BacktestTab() {
               subColor="text-loss"
               icon={<AlertTriangle className="w-4 h-4" />}
               testId="kpi-max-drawdown"
-              benchmarkLine={niftySummary ? `Nifty 50: -${niftySummary.maxDrawdownPct.toFixed(1)}%` : undefined}
+              benchmarkLine={niftySummary ? `${benchmarkName}: -${niftySummary.maxDrawdownPct.toFixed(1)}%` : undefined}
             />
             <MetricCard
               label="Profit Factor" value={s.profitFactor === Infinity ? "∞" : s.profitFactor.toFixed(2)}
@@ -953,7 +985,7 @@ export default function BacktestTab() {
               {/* Equity Curve: Portfolio vs Nifty */}
               <Card>
                 <CardHeader className="py-2 px-4">
-                  <CardTitle className="text-xs font-semibold">Portfolio vs Nifty 50 (%)</CardTitle>
+                  <CardTitle className="text-xs font-semibold">Portfolio vs {benchmarkName} (%)</CardTitle>
                 </CardHeader>
                 <CardContent className="px-2 pb-3">
                   <ResponsiveContainer width="100%" height={200}>
@@ -967,7 +999,7 @@ export default function BacktestTab() {
                       <RTooltip
                         contentStyle={{ background: "hsl(222, 18%, 12%)", border: "1px solid hsl(220, 12%, 20%)", borderRadius: "6px", fontSize: "11px" }}
                         labelFormatter={formatChartDate}
-                        formatter={(value: number, name: string) => [`${value.toFixed(2)}%`, name === "equityPct" ? "Portfolio" : "Nifty 50"]}
+                        formatter={(value: number, name: string) => [`${value.toFixed(2)}%`, name === "equityPct" ? "Portfolio" : benchmarkName]}
                       />
                       <Line type="monotone" dataKey="equityPct" stroke="#22c55e" strokeWidth={1.5} dot={false} name="equityPct" />
                       <Line type="monotone" dataKey="niftyPct" stroke="#6b7280" strokeWidth={1} strokeDasharray="4 3" dot={false} name="niftyPct" />
@@ -1045,6 +1077,7 @@ export default function BacktestTab() {
             <MonthlyHeatmap
               snapshots={data.dailySnapshots}
               initialCapital={s.initialCapital}
+              benchmarkName={benchmarkName}
             />
           )}
 

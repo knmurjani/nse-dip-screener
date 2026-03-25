@@ -2,8 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import {
   ComposedChart, Line, Area, XAxis, YAxis, CartesianGrid,
-  Tooltip as RTooltip, ResponsiveContainer, ReferenceLine,
-  ReferenceArea,
+  Tooltip as RTooltip, ResponsiveContainer,
 } from "recharts";
 import { Loader2 } from "lucide-react";
 
