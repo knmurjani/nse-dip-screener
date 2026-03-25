@@ -1,4 +1,4 @@
-import { getKite, isAuthenticated } from "./kite";
+import { getKite, isAuthenticated, throttledKite } from "./kite";
 import { NSE_UNIVERSE } from "./nse-universe";
 import type { BacktestResult, BacktestSummary, Trade, DailySnapshot } from "./backtest";
 
@@ -18,8 +18,7 @@ let instrumentMap: Map<string, number> = new Map();
 async function loadKiteInstruments() {
   if (instrumentMap.size > 0) return;
   try {
-    const kite = getKite();
-    const instruments = await kite.getInstruments("NSE");
+    const instruments = await throttledKite(k => k.getInstruments("NSE"));
     for (const inst of instruments)
       if (inst.segment === "NSE" && inst.instrument_type === "EQ")
         instrumentMap.set(inst.tradingsymbol, inst.instrument_token);
@@ -33,7 +32,7 @@ async function fetchBars(symbol: string, from: string, to: string): Promise<Bar[
       const clean = symbol.replace(".NS", "");
       const token = instrumentMap.get(clean);
       if (token) {
-        const data = await getKite().getHistoricalData(token, "day", from, to);
+        const data = await throttledKite(k => k.getHistoricalData(token, "day", from, to));
         if (data && data.length > 0)
           return data.filter((d: any) => d.close > 0).map((d: any) => ({
             date: new Date(d.date).toISOString().split("T")[0],

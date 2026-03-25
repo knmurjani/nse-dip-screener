@@ -1,5 +1,5 @@
 import { NSE_UNIVERSE } from "./nse-universe";
-import { getKite, isAuthenticated, markKiteFailed } from "./kite";
+import { getKite, isAuthenticated, markKiteFailed, throttledKite } from "./kite";
 import type { ScreenerStock, UniverseStock } from "@shared/schema";
 
 // Fallback: Yahoo Finance (when Kite not authenticated)
@@ -17,8 +17,7 @@ let instrumentsLoaded = false;
 async function loadInstruments() {
   if (instrumentsLoaded) return;
   try {
-    const kite = getKite();
-    const instruments = await kite.getInstruments("NSE");
+    const instruments = await throttledKite(k => k.getInstruments("NSE"));
     for (const inst of instruments) {
       if (inst.segment === "NSE" && inst.instrument_type === "EQ") {
         instrumentMap.set(inst.tradingsymbol, inst.instrument_token);
@@ -71,17 +70,16 @@ async function fetchBarsKite(symbol: string): Promise<Bar[] | null> {
     const token = instrumentMap.get(cleanSymbol);
     if (!token) return null;
 
-    const kite = getKite();
     const to = new Date();
     const from = new Date();
     from.setDate(from.getDate() - 400);
 
-    const data = await kite.getHistoricalData(
+    const data = await throttledKite(k => k.getHistoricalData(
       token,
       "day",
       from.toISOString().split("T")[0],
       to.toISOString().split("T")[0]
-    );
+    ));
 
     if (!data || data.length < 10) return null;
     return data
@@ -104,8 +102,7 @@ async function fetchQuoteKite(symbol: string): Promise<{
 } | null> {
   try {
     const cleanSymbol = symbol.replace(".NS", "");
-    const kite = getKite();
-    const quotes = await kite.getQuote([`NSE:${cleanSymbol}`]);
+    const quotes = await throttledKite(k => k.getQuote([`NSE:${cleanSymbol}`]));
     const q = quotes[`NSE:${cleanSymbol}`];
     if (!q || !q.last_price) return null;
 

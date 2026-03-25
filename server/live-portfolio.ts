@@ -1,7 +1,7 @@
 import { db, getConfig } from "./storage";
 import { liveSignals, livePositions, liveTrades, liveSnapshots } from "@shared/schema";
 import { eq, and, desc } from "drizzle-orm";
-import { getKite, isAuthenticated } from "./kite";
+import { getKite, isAuthenticated, throttledKite } from "./kite";
 import { runScreener } from "./screener";
 
 const yfRaw = require("yahoo-finance2");
@@ -21,8 +21,7 @@ async function getQuote(symbol: string): Promise<{ price: number; prevClose: num
   const clean = symbol.replace(".NS", "");
   if (isAuthenticated()) {
     try {
-      const kite = getKite();
-      const quotes = await kite.getQuote([`NSE:${clean}`]);
+      const quotes = await throttledKite(k => k.getQuote([`NSE:${clean}`]));
       const q = quotes[`NSE:${clean}`];
       if (q?.last_price) return {
         price: q.last_price,
@@ -47,8 +46,7 @@ async function getQuote(symbol: string): Promise<{ price: number; prevClose: num
 async function getNiftyPrice(): Promise<number> {
   try {
     if (isAuthenticated()) {
-      const kite = getKite();
-      const q = await kite.getQuote(["NSE:NIFTY 50"]);
+      const q = await throttledKite(k => k.getQuote(["NSE:NIFTY 50"]));
       const n = q["NSE:NIFTY 50"];
       if (n?.last_price) return n.last_price;
     }

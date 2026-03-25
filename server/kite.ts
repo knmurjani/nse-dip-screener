@@ -10,6 +10,29 @@ let kite = new KiteConnect({ api_key: API_KEY });
 let accessToken: string | null = process.env.KITE_ACCESS_TOKEN || null;
 let tokenExpiry: string | null = null; // YYYY-MM-DD of when token was set
 
+// ─── Global API Rate Limiter (1 call per second) ───
+
+let lastKiteCallTime = 0;
+const MIN_CALL_INTERVAL_MS = 1000; // 1 second between calls
+
+export async function kiteThrottle(): Promise<void> {
+  const now = Date.now();
+  const elapsed = now - lastKiteCallTime;
+  if (elapsed < MIN_CALL_INTERVAL_MS) {
+    await new Promise(r => setTimeout(r, MIN_CALL_INTERVAL_MS - elapsed));
+  }
+  lastKiteCallTime = Date.now();
+}
+
+/**
+ * Execute a Kite API call with automatic throttling (1 req/sec).
+ * Usage: const result = await throttledKite(kite => kite.getQuote(["NSE:RELIANCE"]));
+ */
+export async function throttledKite<T>(fn: (kite: KiteConnect) => Promise<T>): Promise<T> {
+  await kiteThrottle();
+  return fn(kite);
+}
+
 export function getKite(): KiteConnect {
   return kite;
 }

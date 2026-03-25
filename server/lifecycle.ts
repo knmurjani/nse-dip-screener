@@ -10,7 +10,7 @@ import {
   getDeploymentPositions, getDeploymentTrades, getDeploymentSnapshots,
   insertOrder, updateOrderStatus, getOrdersLog,
 } from "./storage";
-import { getKite, isAuthenticated, getKiteStatus } from "./kite";
+import { getKite, isAuthenticated, getKiteStatus, throttledKite } from "./kite";
 import { runScreener, clearCache } from "./screener";
 import { runBollingerScreener, clearBollingerCache } from "./screener-bollinger";
 import { getStrategy } from "./strategies";
@@ -45,7 +45,7 @@ async function placeKiteOrderWithRetry(
 ): Promise<{ order_id: string } | null> {
   for (let attempt = 0; attempt < retries; attempt++) {
     try {
-      const response = await kite.placeOrder(variety, orderParams);
+      const response = await throttledKite(k => k.placeOrder(variety, orderParams));
       return response;
     } catch (err: any) {
       const isRetryable =
@@ -95,8 +95,7 @@ async function getQuote(symbol: string): Promise<{ price: number; prevClose: num
   const clean = symbol.replace(".NS", "");
   if (isAuthenticated()) {
     try {
-      const kite = getKite();
-      const quotes = await kite.getQuote([`NSE:${clean}`]);
+      const quotes = await throttledKite(k => k.getQuote([`NSE:${clean}`]));
       const q = quotes[`NSE:${clean}`];
       if (q?.last_price) return {
         price: q.last_price,
@@ -121,8 +120,7 @@ async function getQuote(symbol: string): Promise<{ price: number; prevClose: num
 async function getNiftyPrice(): Promise<number> {
   try {
     if (isAuthenticated()) {
-      const kite = getKite();
-      const q = await kite.getQuote(["NSE:NIFTY 50"]);
+      const q = await throttledKite(k => k.getQuote(["NSE:NIFTY 50"]));
       const n = q["NSE:NIFTY 50"];
       if (n?.last_price) return n.last_price;
     }
@@ -144,8 +142,7 @@ async function getCachedInstruments(): Promise<any[]> {
   if (instrumentsCache && Date.now() - instrumentsCacheTime < INSTRUMENTS_CACHE_TTL) {
     return instrumentsCache;
   }
-  const kite = getKite();
-  instrumentsCache = await kite.getInstruments("NSE");
+  instrumentsCache = await throttledKite(k => k.getInstruments("NSE"));
   instrumentsCacheTime = Date.now();
   return instrumentsCache;
 }
@@ -171,7 +168,7 @@ async function getBollingerBands(
         const instruments = await getCachedInstruments();
         const inst = instruments.find((i: any) => i.tradingsymbol === clean);
         if (inst) {
-          data = await kite.getHistoricalData(inst.instrument_token, "day", startDate, endDate);
+          data = await throttledKite(k => k.getHistoricalData(inst.instrument_token, "day", startDate, endDate));
         }
       } catch { /* fall through to Yahoo */ }
     }
@@ -772,10 +769,9 @@ async function reconcilePositions(deploymentId: number): Promise<void> {
     const positions = getDeploymentPositions(deploymentId);
     if (positions.length === 0) return;
 
-    const kite = getKite();
     let kiteHoldings: any[];
     try {
-      kiteHoldings = await kite.getHoldings();
+      kiteHoldings = await throttledKite(k => k.getHoldings());
     } catch {
       return; // Can't reconcile without holdings data
     }

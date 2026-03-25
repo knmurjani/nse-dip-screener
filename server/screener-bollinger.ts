@@ -1,5 +1,5 @@
 import { NSE_UNIVERSE } from "./nse-universe";
-import { getKite, isAuthenticated, markKiteFailed } from "./kite";
+import { getKite, isAuthenticated, markKiteFailed, throttledKite } from "./kite";
 import type { ScreenerStock, UniverseStock } from "@shared/schema";
 
 const yfRaw = require("yahoo-finance2");
@@ -16,8 +16,7 @@ let instrumentsLoaded = false;
 async function loadInstruments() {
   if (instrumentsLoaded) return;
   try {
-    const kite = getKite();
-    const instruments = await kite.getInstruments("NSE");
+    const instruments = await throttledKite(k => k.getInstruments("NSE"));
     for (const inst of instruments)
       if (inst.segment === "NSE" && inst.instrument_type === "EQ")
         instrumentMap.set(inst.tradingsymbol, inst.instrument_token);
@@ -37,7 +36,7 @@ async function fetchBars(symbol: string): Promise<Bar[] | null> {
         const end = new Date();
         const start = new Date();
         start.setDate(start.getDate() - 60); // 60 days for 20-day MA + buffer
-        const data = await getKite().getHistoricalData(token, "day", start.toISOString().split("T")[0], end.toISOString().split("T")[0]);
+        const data = await throttledKite(k => k.getHistoricalData(token, "day", start.toISOString().split("T")[0], end.toISOString().split("T")[0]));
         if (data && data.length > 0)
           return data.filter((d: any) => d.close > 0).map((d: any) => ({
             date: new Date(d.date).toISOString().split("T")[0],
@@ -66,8 +65,7 @@ async function fetchQuote(symbol: string): Promise<{
   const clean = symbol.replace(".NS", "");
   if (isAuthenticated() && instrumentsLoaded) {
     try {
-      const kite = getKite();
-      const quotes = await kite.getQuote([`NSE:${clean}`]);
+      const quotes = await throttledKite(k => k.getQuote([`NSE:${clean}`]));
       const q = quotes[`NSE:${clean}`];
       if (q?.last_price) return {
         price: q.last_price, prevClose: q.ohlc?.close || q.last_price,

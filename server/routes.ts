@@ -3,7 +3,7 @@ import { createServer, type Server } from "http";
 import crypto from "crypto";
 import { runScreener, clearCache } from "./screener";
 import { startScheduler } from "./scheduler";
-import { getLoginURL, generateSession, setAccessToken, isAuthenticated, getKite, getKiteStatus, markKiteFailed } from "./kite";
+import { getLoginURL, generateSession, setAccessToken, isAuthenticated, getKite, getKiteStatus, markKiteFailed, throttledKite } from "./kite";
 import { getBacktestResult, clearBacktestCache, runBacktest } from "./backtest";
 import { runBollingerMRBacktest } from "./backtest-bollinger-mr";
 import Database from "better-sqlite3";
@@ -599,12 +599,11 @@ export async function registerRoutes(
 
       if (isAuthenticated()) {
         try {
-          const kite = getKite();
-          const instruments = await kite.getInstruments("NSE");
+          const instruments = await throttledKite(k => k.getInstruments("NSE"));
           const clean = symbol.replace(".NS", "");
           const inst = instruments.find((i: any) => i.tradingsymbol === clean && i.segment === "NSE" && i.instrument_type === "EQ");
           if (inst) {
-            const data = await kite.getHistoricalData(inst.instrument_token, "day", from, to);
+            const data = await throttledKite(k => k.getHistoricalData(inst.instrument_token, "day", from, to));
             if (data && data.length > 0) {
               bars = data.filter((d: any) => d.close > 0).map((d: any) => ({
                 date: new Date(d.date).toISOString().split("T")[0],
@@ -1027,9 +1026,8 @@ export async function registerRoutes(
       return res.status(400).json({ error: "Kite not connected" });
     }
     try {
-      const kite = getKite();
       const variety = isMarketOpen() ? "regular" : "amo";
-      const response = await kite.placeOrder(variety, {
+      const response = await throttledKite(k => k.placeOrder(variety, {
         exchange: order.exchange || "NSE",
         tradingsymbol: order.symbol,
         transaction_type: order.transaction_type,
@@ -1037,7 +1035,7 @@ export async function registerRoutes(
         product: "CNC",
         order_type: order.order_type,
         price: order.price,
-      });
+      }));
       const kiteOrderId = response?.order_id || null;
       updateOrderStatus(orderId, {
         status: "PLACED",
