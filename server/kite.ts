@@ -1,14 +1,56 @@
 import { KiteConnect } from "kiteconnect";
 import { sendTelegramMessage } from "./telegram";
-import { istNow } from "./storage";
+import { istNow, getConfig, setConfig } from "./storage";
 
 // Environment variables (set these in .env or Railway/AWS)
 const API_KEY = process.env.KITE_API_KEY || "qdjxlkbtg8gy0ec3";
 const API_SECRET = process.env.KITE_API_SECRET || "6cphs32h6vyjp5q287u7tst2zsyr1hu1";
 
 let kite = new KiteConnect({ api_key: API_KEY });
-let accessToken: string | null = process.env.KITE_ACCESS_TOKEN || null;
 let tokenExpiry: string | null = null; // YYYY-MM-DD of when token was set
+
+// ─── Token Persistence: load from env → DB → null ───
+function loadPersistedToken(): string | null {
+  // 1. Environment variable takes priority
+  if (process.env.KITE_ACCESS_TOKEN) return process.env.KITE_ACCESS_TOKEN;
+  // 2. Try SQLite (survives deploys if volume is mounted)
+  try {
+    const saved = getConfig("kite_access_token");
+    const savedDate = getConfig("kite_token_date");
+    if (saved && savedDate) {
+      // Kite tokens expire daily — only use if saved today (IST)
+      const todayIST = new Date(Date.now() + 5.5 * 60 * 60 * 1000).toISOString().split("T")[0];
+      if (savedDate === todayIST) {
+        console.log("[Kite] Restored access token from database (saved today)");
+        return saved;
+      } else {
+        console.log(`[Kite] Saved token is from ${savedDate}, today is ${todayIST} — expired, ignoring`);
+      }
+    }
+  } catch (e) {
+    console.error("[Kite] Failed to load persisted token:", e);
+  }
+  return null;
+}
+
+function persistToken(token: string): void {
+  try {
+    const todayIST = new Date(Date.now() + 5.5 * 60 * 60 * 1000).toISOString().split("T")[0];
+    setConfig("kite_access_token", token);
+    setConfig("kite_token_date", todayIST);
+    console.log("[Kite] Access token persisted to database");
+  } catch (e) {
+    console.error("[Kite] Failed to persist token:", e);
+  }
+}
+
+let accessToken: string | null = loadPersistedToken();
+
+// Apply persisted token to Kite instance on startup
+if (accessToken) {
+  kite.setAccessToken(accessToken);
+  console.log("[Kite] Token applied to Kite instance on startup");
+}
 
 // ─── Global API Rate Limiter (1 call per second) ───
 
@@ -94,6 +136,7 @@ export async function generateSession(requestToken: string): Promise<{
   kite.setAccessToken(accessToken!);
   kiteApiWorking = true; // Reset on new session
   lastKiteError = "";
+  persistToken(accessToken!); // Save to DB so it survives deploys
   console.log(`[Kite] Authenticated as ${session.user_name || session.user_id} — token valid for today`);
   return {
     access_token: session.access_token,
@@ -107,6 +150,7 @@ export function setAccessToken(token: string) {
   kiteApiWorking = true; // Reset — assume new token works
   lastKiteError = "";
   kite.setAccessToken(token);
+  persistToken(token); // Save to DB so it survives deploys
   console.log("[Kite] Access token set — connection restored");
 }
 
