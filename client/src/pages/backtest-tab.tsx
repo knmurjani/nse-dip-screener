@@ -147,7 +147,7 @@ export default function BacktestTab() {
   const [formWatchlistCond, setFormWatchlistCond] = useState("below_-3s");
   const [formEntryCond, setFormEntryCond] = useState("cross_above_-2s");
   const [formExitTarget, setFormExitTarget] = useState("reach_+2s");
-  const [formExitStopBand, setFormExitStopBand] = useState("below_-3s");
+
   // Form state — Universe & Benchmark
   const [formUniverse, setFormUniverse] = useState("nifty500");
   const [formBenchmark, setFormBenchmark] = useState("nifty50");
@@ -225,7 +225,6 @@ export default function BacktestTab() {
         body.watchlistCondition = formWatchlistCond;
         body.entryCondition = formEntryCond;
         body.exitTarget = formExitTarget;
-        body.exitStopBand = formExitStopBand;
       }
       if (isATR) {
         body.dmaLength = Number(formDmaLength);
@@ -529,21 +528,8 @@ export default function BacktestTab() {
                   </Select>
                 </div>
               </div>
-              {/* Row 4: Exit stop + additional params */}
+              {/* Row 4: Additional params */}
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-                <div>
-                  <label className="text-[10px] text-muted-foreground block mb-1">Exit — Band Stop Loss</label>
-                  <Select value={formExitStopBand} onValueChange={setFormExitStopBand}>
-                    <SelectTrigger className="h-8 text-xs" data-testid="select-exit-stop">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="below_-2s" className="text-xs">Drop below −2σ</SelectItem>
-                      <SelectItem value="below_-3s" className="text-xs">Drop below −3σ</SelectItem>
-                      <SelectItem value="below_-4s" className="text-xs">Drop below −4σ</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
                 {strategyId === "bollinger_bounce" && (
                   <div className="flex items-center pt-4">
                     <label className="flex items-center gap-2 cursor-pointer">
@@ -1368,7 +1354,6 @@ function StrategyRulesCard({ strategyId, paramsJson }: { strategyId: string; par
                   <Clock className="w-3 h-3 text-primary" /> Exit Rules
                 </h4>
                 <RuleRow label="Profit Target" value={tpl.exit?.profitTarget ?? "N/A"} />
-                <RuleRow label="Band Stop Loss" value={tpl.exit?.bandStopLoss ?? "N/A"} />
                 <RuleRow label="Absolute Stop" value={tpl.exit?.absoluteStopLoss ?? "N/A"} />
                 <RuleRow label="Trailing Stop" value={tpl.exit?.trailingStopLoss ?? "N/A"} />
                 <RuleRow label="Price Action Exit" value={tpl.exit?.priceActionExit ?? "N/A"} />
@@ -1380,6 +1365,7 @@ function StrategyRulesCard({ strategyId, paramsJson }: { strategyId: string; par
                   Data
                 </h4>
                 <RuleRow label="Universe" value={tpl.data?.universe ?? "N/A"} />
+                <RuleRow label="Benchmark" value={tpl.data?.benchmark ?? "N/A"} />
                 <RuleRow label="Data Source" value={tpl.data?.dataSource ?? "N/A"} />
                 {tpl.period && (
                   <RuleRow label="Period" value={`${tpl.period.from} \u2192 ${tpl.period.to}`} />

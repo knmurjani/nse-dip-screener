@@ -859,16 +859,15 @@ const STRATEGY_RULES: Record<string, {
     ],
     exit: [
       { title: "Profit Target", desc: "Configurable: reach mean, +1σ, +2σ, or +3σ" },
-      { title: "Band Stop", desc: "Configurable: drop below −2σ, −3σ, or −4σ" },
       { title: "Absolute Stop", desc: "Optional: fixed % loss from entry price" },
       { title: "Trailing Stop", desc: "Optional: fixed % drop from peak price" },
       { title: "Time Exit", desc: "Optional: max trading days (leave blank for no limit)" },
     ],
-    exitNote: "All conditions are configurable from the backtest console. Select your watchlist trigger, entry crossover, profit target band, and stop loss band. Leave optional fields blank to disable them.",
+    exitNote: "All conditions are configurable from the backtest console. Select your watchlist trigger, entry crossover, and profit target band. Leave optional fields blank to disable them.",
     indicators: [
       { term: "N-DMA", def: "N-day moving average (default 20). The \u2018mean\u2019 line. Configurable period." },
       { term: "Standard Deviation (σ)", def: "Measures price dispersion around the mean. Used to calculate all band levels." },
-      { term: "Lower Bands (−Nσ)", def: "Below the mean. Used for watchlist trigger and stop loss." },
+      { term: "Lower Bands (−Nσ)", def: "Below the mean. Used for watchlist trigger." },
       { term: "Upper Bands (+Nσ)", def: "Above the mean. Used for profit target exit." },
       { term: "Setup Score", def: "Distance to target as %. Higher = more potential upside." },
     ],

@@ -410,7 +410,7 @@ export async function registerRoutes(
       let result;
       const commonParams = { capitalRs: capital || 1000000, maxPositions: maxPositions || 10, lookbackYears: years || 5 };
 
-      const bollingerConditions = { watchlistCondition, entryCondition, exitTarget, exitStopBand };
+      const bollingerConditions = { watchlistCondition, entryCondition, exitTarget };
 
       if (strategy === "bollinger_bounce" || strategy === "bollinger_mr") {
         result = await runBollingerMRBacktest({
@@ -420,7 +420,6 @@ export async function registerRoutes(
           maPeriod: maPeriod || 20,
           entryBandSigma: entryBandSigma || 2,
           targetBandSigma: targetBandSigma || 2,
-          stopLossSigma: stopLossSigma || 2,
           maxHoldDays: maxHoldDays !== undefined && maxHoldDays !== "" ? Number(maxHoldDays) : 0,
           allowParallelPositions: allowParallelPositions || false,
           absoluteStopPct: absoluteStopPct || undefined,
@@ -489,7 +488,6 @@ export async function registerRoutes(
         },
         exit: {
           profitTarget: exitTarget ? condLabels[exitTarget] : (strategy === "atr_dip_buyer" ? `Entry + ${profitTargetMultiple ?? 0.5}\u00d7ATR(5)` : "N/A"),
-          bandStopLoss: exitStopBand ? condLabels[exitStopBand] : "N/A",
           absoluteStopLoss: absoluteStopPct ? `\u2212${absoluteStopPct}% from entry` : "N/A",
           trailingStopLoss: trailingStopPct ? `\u2212${trailingStopPct}% from peak` : "N/A",
           priceActionExit: strategy === "atr_dip_buyer" ? (priceActionExit !== false ? "Close > previous day's high" : "Disabled") : "N/A",
@@ -497,6 +495,7 @@ export async function registerRoutes(
         },
         data: {
           universe: `${universeLabel} (${universeSize} stocks)`,
+          benchmark: benchmarkLabel || "NIFTY 50",
           dataSource: result.summary.dataSource,
         },
       };
@@ -507,7 +506,7 @@ export async function registerRoutes(
         allowParallelPositions,
         universe: universe || "nifty500", benchmark: benchmark || "nifty50", benchmarkLabel,
         // Configurable conditions
-        watchlistCondition, entryCondition, exitTarget, exitStopBand,
+        watchlistCondition, entryCondition, exitTarget,
         // ATR-specific params
         dmaLength, dipThresholdPct, atrFilterThreshold, limitOrderMultiple, profitTargetMultiple, priceActionExit,
         // Comprehensive rules template
@@ -521,7 +520,6 @@ export async function registerRoutes(
         exitRules: [
           ...(strategyDef?.exitRules || []),
           ...(exitTarget ? [{ name: "Profit Target", description: condLabels[exitTarget] || exitTarget }] : []),
-          ...(exitStopBand ? [{ name: "Band Stop", description: condLabels[exitStopBand] || exitStopBand }] : []),
           ...(absoluteStopPct ? [{ name: "Absolute Stop", description: `\u2212${absoluteStopPct}% from entry` }] : []),
           ...(trailingStopPct ? [{ name: "Trailing Stop", description: `\u2212${trailingStopPct}% from peak` }] : []),
           ...(maxHoldDays && maxHoldDays > 0 ? [{ name: "Time Exit", description: `${maxHoldDays} trading days max` }] : []),
