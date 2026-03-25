@@ -206,7 +206,7 @@ export default function BollingerTradeChart({ symbol, entryDate, exitDate, entry
               {/* Upper band (+2σ) */}
               <Line
                 type="monotone" dataKey="upperBand"
-                stroke="#22c55e" strokeWidth={1} strokeDasharray="4 2"
+                stroke="#60a5fa" strokeWidth={1} strokeDasharray="4 2"
                 dot={false} name="upperBand" isAnimationActive={false}
               />
 
@@ -272,17 +272,7 @@ export default function BollingerTradeChart({ symbol, entryDate, exitDate, entry
             label={{ value: `▼ Exit ₹${exitPrice.toFixed(0)}`, position: "insideTopRight", fontSize: 10, fill: "#f97316", fontWeight: 700 }}
           />
 
-          {/* Entry price horizontal line */}
-          <ReferenceLine
-            y={entryPrice} stroke="#22c55e" strokeWidth={1} strokeDasharray="2 4"
-            strokeOpacity={0.4}
-          />
 
-          {/* Exit price horizontal line */}
-          <ReferenceLine
-            y={exitPrice} stroke="#f97316" strokeWidth={1} strokeDasharray="2 4"
-            strokeOpacity={0.4}
-          />
         </ComposedChart>
       </ResponsiveContainer>
     </div>

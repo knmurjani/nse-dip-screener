@@ -148,6 +148,9 @@ export default function BacktestTab() {
   const [formEntryCond, setFormEntryCond] = useState("cross_above_-2s");
   const [formExitTarget, setFormExitTarget] = useState("reach_mean");
   const [formExitStopBand, setFormExitStopBand] = useState("below_-3s");
+  // Form state — Universe & Benchmark
+  const [formUniverse, setFormUniverse] = useState("nifty500");
+  const [formBenchmark, setFormBenchmark] = useState("nifty50");
   // Form state — ATR Dip Buyer-specific
   const [formDmaLength, setFormDmaLength] = useState("200");
   const [formDipThreshold, setFormDipThreshold] = useState("3");
@@ -208,6 +211,8 @@ export default function BacktestTab() {
         maxHoldDays: formMaxHoldDays ? Number(formMaxHoldDays) : 0,
         absoluteStopPct: formAbsoluteStopPct ? Number(formAbsoluteStopPct) : undefined,
         trailingStopPct: formTrailingStopPct ? Number(formTrailingStopPct) : undefined,
+        universe: formUniverse,
+        benchmark: formBenchmark,
       };
       if (isBollinger) {
         body.maPeriod = Number(formMaPeriod);
@@ -424,6 +429,34 @@ export default function BacktestTab() {
                   placeholder="e.g., 3 for -3% from peak" className="h-8 text-xs tabular-nums"
                   data-testid="input-trailing-stop"
                 />
+              </div>
+            </div>
+            {/* Row 2b: Universe & Benchmark */}
+            <div className="grid grid-cols-2 sm:grid-cols-2 gap-3">
+              <div>
+                <label className="text-[10px] text-muted-foreground block mb-1">Universe</label>
+                <Select value={formUniverse} onValueChange={setFormUniverse}>
+                  <SelectTrigger className="h-8 text-xs" data-testid="select-universe">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="nifty500" className="text-xs">Nifty 500 (Full)</SelectItem>
+                    <SelectItem value="nifty200" className="text-xs">Nifty 200 (Large + Mid)</SelectItem>
+                    <SelectItem value="nifty100" className="text-xs">Nifty 100 (Large Cap)</SelectItem>
+                    <SelectItem value="nifty50" className="text-xs">Nifty 50 (Blue Chip)</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <label className="text-[10px] text-muted-foreground block mb-1">Benchmark</label>
+                <Select value={formBenchmark} onValueChange={setFormBenchmark}>
+                  <SelectTrigger className="h-8 text-xs" data-testid="select-benchmark">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="nifty50" className="text-xs">Nifty 50</SelectItem>
+                  </SelectContent>
+                </Select>
               </div>
             </div>
             {/* Row 3: Bollinger params — MA + configurable conditions */}
@@ -775,22 +808,33 @@ export default function BacktestTab() {
           </div>
 
           {/* ── Summary Dashboard ── */}
+          {niftySummary && (
+            <div className="flex items-center gap-2">
+              <Badge variant="outline" className="text-[10px] px-2 py-0.5 text-muted-foreground border-muted-foreground/30">
+                vs Nifty 50
+              </Badge>
+            </div>
+          )}
 
           {/* Row 1: 4 primary KPIs */}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3" data-testid="kpi-row-1">
             <MetricCard
               label="Total Return" value={`${s.totalReturnPct >= 0 ? "+" : ""}${s.totalReturnPct.toFixed(1)}%`}
-              sub={niftySummary ? `${fmtRs(s.totalReturn)} (Nifty: ${niftySummary.totalReturnPct >= 0 ? "+" : ""}${niftySummary.totalReturnPct.toFixed(1)}%)` : fmtRs(s.totalReturn)}
+              sub={fmtRs(s.totalReturn)}
               subColor={s.totalReturnPct >= 0 ? "text-gain" : "text-loss"}
               icon={<TrendingUp className="w-4 h-4" />}
               testId="kpi-total-return"
+              benchmarkLine={niftySummary ? `Nifty 50: ${niftySummary.totalReturnPct >= 0 ? "+" : ""}${niftySummary.totalReturnPct.toFixed(1)}%` : undefined}
+              alphaLine={niftySummary ? { text: `Alpha: ${(s.totalReturnPct - niftySummary.totalReturnPct) >= 0 ? "+" : ""}${(s.totalReturnPct - niftySummary.totalReturnPct).toFixed(1)}%`, positive: s.totalReturnPct - niftySummary.totalReturnPct >= 0 } : undefined}
             />
             <MetricCard
               label="Annualized Return" value={`${s.annualizedReturnPct >= 0 ? "+" : ""}${s.annualizedReturnPct.toFixed(1)}%`}
-              sub={niftySummary ? `${s.totalDays}d (Nifty: ${niftySummary.annualizedPct >= 0 ? "+" : ""}${niftySummary.annualizedPct.toFixed(1)}%)` : `${s.totalDays} days`}
+              sub={`${s.totalDays} days`}
               subColor={s.annualizedReturnPct >= 0 ? "text-gain" : "text-loss"}
               icon={<Activity className="w-4 h-4" />}
               testId="kpi-annualized-return"
+              benchmarkLine={niftySummary ? `Nifty 50: ${niftySummary.annualizedPct >= 0 ? "+" : ""}${niftySummary.annualizedPct.toFixed(1)}%` : undefined}
+              alphaLine={niftySummary ? { text: `Alpha: ${(s.annualizedReturnPct - niftySummary.annualizedPct) >= 0 ? "+" : ""}${(s.annualizedReturnPct - niftySummary.annualizedPct).toFixed(1)}%`, positive: s.annualizedReturnPct - niftySummary.annualizedPct >= 0 } : undefined}
             />
             <MetricCard
               label="Win Rate" value={`${s.winningPct.toFixed(1)}%`}
@@ -818,10 +862,11 @@ export default function BacktestTab() {
             />
             <MetricCard
               label="Max Drawdown" value={`-${s.maxDrawdownPct.toFixed(1)}%`}
-              sub={niftySummary ? `${s.maxDrawdownDate} (Nifty: -${niftySummary.maxDrawdownPct.toFixed(1)}%)` : s.maxDrawdownDate}
+              sub={s.maxDrawdownDate}
               subColor="text-loss"
               icon={<AlertTriangle className="w-4 h-4" />}
               testId="kpi-max-drawdown"
+              benchmarkLine={niftySummary ? `Nifty 50: -${niftySummary.maxDrawdownPct.toFixed(1)}%` : undefined}
             />
             <MetricCard
               label="Profit Factor" value={s.profitFactor === Infinity ? "∞" : s.profitFactor.toFixed(2)}
@@ -1144,8 +1189,9 @@ export default function BacktestTab() {
 
 // ─── Sub-components ───
 
-function MetricCard({ label, value, sub, subColor, icon, testId }: {
+function MetricCard({ label, value, sub, subColor, icon, testId, benchmarkLine, alphaLine }: {
   label: string; value: string; sub: string; subColor?: string; icon: React.ReactNode; testId?: string;
+  benchmarkLine?: string; alphaLine?: { text: string; positive: boolean };
 }) {
   return (
     <Card data-testid={testId}>
@@ -1154,8 +1200,16 @@ function MetricCard({ label, value, sub, subColor, icon, testId }: {
           <span className="text-[11px] text-muted-foreground font-medium">{label}</span>
           <span className="text-muted-foreground/60">{icon}</span>
         </div>
-        <p className="text-lg font-bold tabular-nums">{value}</p>
-        <p className={`text-[11px] mt-0.5 tabular-nums font-medium ${subColor || "text-muted-foreground"}`}>{sub}</p>
+        <p className={`text-lg font-bold tabular-nums ${subColor || ""}`}>{value}</p>
+        {benchmarkLine && (
+          <p className="text-[11px] mt-0.5 tabular-nums text-muted-foreground">{benchmarkLine}</p>
+        )}
+        {alphaLine && (
+          <p className={`text-[10px] mt-0.5 tabular-nums font-semibold ${alphaLine.positive ? "text-gain" : "text-loss"}`}>{alphaLine.text}</p>
+        )}
+        {!benchmarkLine && !alphaLine && (
+          <p className={`text-[11px] mt-0.5 tabular-nums font-medium ${subColor || "text-muted-foreground"}`}>{sub}</p>
+        )}
       </CardContent>
     </Card>
   );

@@ -183,6 +183,7 @@ export interface ATRBacktestParams {
   limitOrderMultiple?: number; // default 0.9 (can be 0.5, 0.7, 0.9, 1.0)
   profitTargetMultiple?: number; // default 0.5 (can be 0.3, 0.5, 0.7, 1.0)
   priceActionExit?: boolean;   // default true (close > prev high)
+  universeOverride?: typeof NSE_UNIVERSE; // optional filtered universe
 }
 
 interface OpenPosition {
@@ -205,6 +206,7 @@ export async function runBacktest(params: ATRBacktestParams): Promise<BacktestRe
   const LIMIT_MULT = params.limitOrderMultiple ?? 0.9;
   const PROFIT_MULT = params.profitTargetMultiple ?? 0.5;
   const PRICE_ACTION_EXIT = params.priceActionExit !== false; // default true
+  const universe = params.universeOverride || NSE_UNIVERSE;
 
   // Determine backtest period — fromDate/toDate take precedence over lookbackYears
   let toDate: Date;
@@ -238,14 +240,14 @@ export async function runBacktest(params: ATRBacktestParams): Promise<BacktestRe
   // ─── Fetch all stock data ───
   const allBars: Map<string, Bar[]> = new Map();
   const batchSize = useKite ? 8 : 5;
-  for (let i = 0; i < NSE_UNIVERSE.length; i += batchSize) {
-    const batch = NSE_UNIVERSE.slice(i, i + batchSize);
+  for (let i = 0; i < universe.length; i += batchSize) {
+    const batch = universe.slice(i, i + batchSize);
     await Promise.allSettled(batch.map(async (stock) => {
       const bars = await fetchBars(stock.symbol, from, to);
       if (bars && bars.length >= DMA_LEN) allBars.set(stock.symbol, bars);
     }));
-    if (i + batchSize < NSE_UNIVERSE.length) await new Promise(r => setTimeout(r, useKite ? 80 : 120));
-    if ((i + batchSize) % 100 === 0) console.log(`[Backtest] Fetched ${Math.min(i + batchSize, NSE_UNIVERSE.length)} / ${NSE_UNIVERSE.length}...`);
+    if (i + batchSize < universe.length) await new Promise(r => setTimeout(r, useKite ? 80 : 120));
+    if ((i + batchSize) % 100 === 0) console.log(`[Backtest] Fetched ${Math.min(i + batchSize, universe.length)} / ${universe.length}...`);
   }
   console.log(`[Backtest] Data for ${allBars.size} stocks. Simulating ${yearsLabel} years...`);
 
@@ -417,7 +419,7 @@ export async function runBacktest(params: ATRBacktestParams): Promise<BacktestRe
 
         candidates.push({
           symbol,
-          name: NSE_UNIVERSE.find(s => s.symbol === symbol)?.name || symbol.replace(".NS", ""),
+          name: universe.find(s => s.symbol === symbol)?.name || symbol.replace(".NS", ""),
           signalDate: today,
           close: bar.close,
           atr5,

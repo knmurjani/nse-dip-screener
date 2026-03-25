@@ -6,6 +6,7 @@ import { startScheduler } from "./scheduler";
 import { getLoginURL, generateSession, setAccessToken, isAuthenticated, getKite, getKiteStatus, markKiteFailed, throttledKite } from "./kite";
 import { getBacktestResult, clearBacktestCache, runBacktest } from "./backtest";
 import { runBollingerMRBacktest } from "./backtest-bollinger-mr";
+import { NSE_UNIVERSE } from "./nse-universe";
 import Database from "better-sqlite3";
 import { logSystem, getSystemLogs, getChangelog, DB_PATH, istNow, getDeployments, getDeployment, getActiveDeployments, getDeploymentPositions, getDeploymentTrades, getDeploymentSnapshots, getFundTransactions, getDeploymentChangelog, getOrdersLog, insertOrder, updateOrderStatus, getOrder, getOrderByKiteId } from "./storage";
 import { getFilterBreakdown, clearFilterBreakdownCache } from "./filter-breakdown";
@@ -375,8 +376,16 @@ export async function registerRoutes(
     req.setTimeout(300000);
     res.setTimeout(300000);
     try {
-      const { name, capital, maxPositions, years, fromDate, toDate, strategyId, absoluteStopPct, trailingStopPct, maPeriod, entryBandSigma, stopLossSigma, targetBandSigma, maxHoldDays, allowParallelPositions, watchlistCondition, entryCondition, exitTarget, exitStopBand, dmaLength, dipThresholdPct, atrFilterThreshold, limitOrderMultiple, profitTargetMultiple, priceActionExit } = req.body;
+      const { name, capital, maxPositions, years, fromDate, toDate, strategyId, absoluteStopPct, trailingStopPct, maPeriod, entryBandSigma, stopLossSigma, targetBandSigma, maxHoldDays, allowParallelPositions, watchlistCondition, entryCondition, exitTarget, exitStopBand, dmaLength, dipThresholdPct, atrFilterThreshold, limitOrderMultiple, profitTargetMultiple, priceActionExit, universe, benchmark } = req.body;
       const strategy = strategyId || "atr_dip_buyer";
+
+      // Filter universe based on selection
+      let filteredUniverse = NSE_UNIVERSE;
+      let universeLabel = "Nifty 500";
+      let universeSize = NSE_UNIVERSE.length;
+      if (universe === "nifty50") { filteredUniverse = NSE_UNIVERSE.slice(0, 50); universeLabel = "Nifty 50"; universeSize = 50; }
+      else if (universe === "nifty100") { filteredUniverse = NSE_UNIVERSE.slice(0, 100); universeLabel = "Nifty 100"; universeSize = 100; }
+      else if (universe === "nifty200") { filteredUniverse = NSE_UNIVERSE.slice(0, 200); universeLabel = "Nifty 200"; universeSize = 200; }
 
       let result;
       const commonParams = { capitalRs: capital || 1000000, maxPositions: maxPositions || 10, lookbackYears: years || 5 };
@@ -396,6 +405,7 @@ export async function registerRoutes(
           allowParallelPositions: allowParallelPositions || false,
           absoluteStopPct: absoluteStopPct || undefined,
           trailingStopPct: trailingStopPct || undefined,
+          universeOverride: filteredUniverse,
           ...bollingerConditions,
         });
       } else {
@@ -413,6 +423,7 @@ export async function registerRoutes(
           limitOrderMultiple: limitOrderMultiple !== undefined ? limitOrderMultiple : undefined,
           profitTargetMultiple: profitTargetMultiple !== undefined ? profitTargetMultiple : undefined,
           priceActionExit: priceActionExit !== undefined ? priceActionExit : undefined,
+          universeOverride: filteredUniverse,
         });
       }
 
@@ -461,7 +472,7 @@ export async function registerRoutes(
           maxHoldDays: maxHoldDays && maxHoldDays > 0 ? `${maxHoldDays} trading days` : "No limit",
         },
         data: {
-          universe: "Nifty 500 (497 stocks)",
+          universe: `${universeLabel} (${universeSize} stocks)`,
           dataSource: result.summary.dataSource,
         },
       };
@@ -470,6 +481,7 @@ export async function registerRoutes(
         ...commonParams, strategyId: strategy, absoluteStopPct, trailingStopPct,
         maPeriod, entryBandSigma, stopLossSigma, targetBandSigma, maxHoldDays, fromDate, toDate,
         allowParallelPositions,
+        universe: universe || "nifty500", benchmark: benchmark || "nifty50",
         // Configurable conditions
         watchlistCondition, entryCondition, exitTarget, exitStopBand,
         // ATR-specific params
@@ -500,7 +512,7 @@ export async function registerRoutes(
       const info = stmt.run(
         autoName, strategy, now, result.period.from, result.period.to,
         commonParams.capitalRs, commonParams.maxPositions,
-        result.summary.totalTrades, "Nifty 500",
+        universeSize, universeLabel,
         result.summary.totalTrades,
         result.summary.annualizedReturnPct, result.summary.totalReturnPct,
         result.summary.winningPct, result.summary.sharpeRatio,

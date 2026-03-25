@@ -107,6 +107,7 @@ export interface BollingerMRParams {
   allowParallelPositions?: boolean;
   absoluteStopPct?: number;
   trailingStopPct?: number;
+  universeOverride?: typeof NSE_UNIVERSE; // optional filtered universe
 }
 
 interface OpenPosition {
@@ -122,13 +123,16 @@ function parseWatchlistSigma(cond?: string, fallback?: number): { sigma: number;
   if (!cond) return { sigma: fallback || 2, useMean: false };
   if (cond === "below_mean") return { sigma: 0, useMean: true };
   const m = cond.match(/below_(-?\d+)s/);
-  return m ? { sigma: parseInt(m[1]), useMean: false } : { sigma: fallback || 2, useMean: false };
+  // Always use absolute value — the "below" is encoded in the formula (ma - sigma * std)
+  return m ? { sigma: Math.abs(parseInt(m[1])), useMean: false } : { sigma: fallback || 2, useMean: false };
 }
 
 function parseEntrySigma(cond?: string): { sigma: number; useMean: boolean } {
   if (!cond) return { sigma: 0, useMean: true }; // default: cross above mean
   if (cond === "cross_above_mean") return { sigma: 0, useMean: true };
   const m = cond.match(/cross_above_([+-]?\d+)s/);
+  // Sigma is negative for below-mean bands (e.g., -2 means the -2σ band)
+  // The formula uses ma + sigma * std, so -2 gives ma - 2*std = -2σ band (correct)
   return m ? { sigma: parseInt(m[1]), useMean: false } : { sigma: 0, useMean: true };
 }
 
@@ -164,6 +168,7 @@ export async function runBollingerMRBacktest(params: BollingerMRParams): Promise
   const ALLOW_PARALLEL = params.allowParallelPositions || false;
   const ABS_STOP = params.absoluteStopPct;
   const TRAIL_STOP = params.trailingStopPct;
+  const universe = params.universeOverride || NSE_UNIVERSE;
 
   // Fixed position size (no compounding — matches Python)
   const POSITION_SIZE = Math.floor(CAPITAL / MAX_POS);
@@ -199,14 +204,14 @@ export async function runBollingerMRBacktest(params: BollingerMRParams): Promise
   // Fetch all stocks
   const allBars: Map<string, Bar[]> = new Map();
   const batchSize = useKite ? 8 : 5;
-  for (let i = 0; i < NSE_UNIVERSE.length; i += batchSize) {
-    const batch = NSE_UNIVERSE.slice(i, i + batchSize);
+  for (let i = 0; i < universe.length; i += batchSize) {
+    const batch = universe.slice(i, i + batchSize);
     await Promise.allSettled(batch.map(async (stock) => {
       const bars = await fetchBars(stock.symbol, from, to);
       if (bars && bars.length >= MA_PERIOD + 5) allBars.set(stock.symbol, bars);
     }));
-    if (i + batchSize < NSE_UNIVERSE.length) await new Promise(r => setTimeout(r, useKite ? 80 : 120));
-    if ((i + batchSize) % 100 === 0) console.log(`[BollMR-BT] ${Math.min(i + batchSize, NSE_UNIVERSE.length)} / ${NSE_UNIVERSE.length}...`);
+    if (i + batchSize < universe.length) await new Promise(r => setTimeout(r, useKite ? 80 : 120));
+    if ((i + batchSize) % 100 === 0) console.log(`[BollMR-BT] ${Math.min(i + batchSize, universe.length)} / ${universe.length}...`);
   }
   console.log(`[BollMR-BT] Data for ${allBars.size} stocks. Simulating...`);
 
@@ -409,7 +414,7 @@ export async function runBollingerMRBacktest(params: BollingerMRParams): Promise
           const distToTarget = ((targetLevel - entryPrice) / entryPrice) * 100;
 
           openPositions.push({
-            id: ++tradeId, symbol, name: NSE_UNIVERSE.find(s => s.symbol === symbol)?.name || symbol.replace(".NS", ""),
+            id: ++tradeId, symbol, name: universe.find(s => s.symbol === symbol)?.name || symbol.replace(".NS", ""),
             signalDate: today, entryDate: today,
             entryPrice, shares, capitalAllocated: shares * entryPrice,
             setupScore: Math.round(distToTarget * 100) / 100,

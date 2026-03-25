@@ -94,6 +94,7 @@ export interface BollingerBacktestParams {
   entryCondition?: string;
   exitTarget?: string;
   exitStopBand?: string;
+  universeOverride?: typeof NSE_UNIVERSE; // optional filtered universe
 }
 
 interface OpenPosition {
@@ -114,6 +115,7 @@ export async function runBollingerBacktest(params: BollingerBacktestParams): Pro
   const MAX_HOLD = params.maxHoldDays || 10;
   const ABS_STOP = params.absoluteStopPct; // undefined = disabled
   const TRAIL_STOP = params.trailingStopPct; // undefined = disabled
+  const universe = params.universeOverride || NSE_UNIVERSE;
 
   // Determine backtest period — fromDate/toDate take precedence over lookbackYears
   let toDate: Date;
@@ -146,14 +148,14 @@ export async function runBollingerBacktest(params: BollingerBacktestParams): Pro
   // Fetch all stocks
   const allBars: Map<string, Bar[]> = new Map();
   const batchSize = useKite ? 8 : 5;
-  for (let i = 0; i < NSE_UNIVERSE.length; i += batchSize) {
-    const batch = NSE_UNIVERSE.slice(i, i + batchSize);
+  for (let i = 0; i < universe.length; i += batchSize) {
+    const batch = universe.slice(i, i + batchSize);
     await Promise.allSettled(batch.map(async (stock) => {
       const bars = await fetchBars(stock.symbol, from, to);
       if (bars && bars.length >= MA_PERIOD + 5) allBars.set(stock.symbol, bars);
     }));
-    if (i + batchSize < NSE_UNIVERSE.length) await new Promise(r => setTimeout(r, useKite ? 80 : 120));
-    if ((i + batchSize) % 100 === 0) console.log(`[BollingerBT] ${Math.min(i + batchSize, NSE_UNIVERSE.length)} / ${NSE_UNIVERSE.length}...`);
+    if (i + batchSize < universe.length) await new Promise(r => setTimeout(r, useKite ? 80 : 120));
+    if ((i + batchSize) % 100 === 0) console.log(`[BollingerBT] ${Math.min(i + batchSize, universe.length)} / ${universe.length}...`);
   }
   console.log(`[BollingerBT] Data for ${allBars.size} stocks. Simulating...`);
 
@@ -331,7 +333,7 @@ export async function runBollingerBacktest(params: BollingerBacktestParams): Pro
         if ((wasBelowYesterday || prevWasBelow) && isAboveToday) {
           const distToMean = ((ma - bar.close) / bar.close) * 100;
           candidates.push({
-            symbol, name: NSE_UNIVERSE.find(s => s.symbol === symbol)?.name || symbol.replace(".NS", ""),
+            symbol, name: universe.find(s => s.symbol === symbol)?.name || symbol.replace(".NS", ""),
             date: today, close: bar.close, ma, std,
             setupScore: Math.abs(distToMean), // deeper dip = higher conviction
             target: ma,
