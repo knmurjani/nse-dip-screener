@@ -277,7 +277,9 @@ export async function runBollingerMRBacktest(params: BollingerMRParams): Promise
       const targetLevel = exitTargetCfg.useMean ? ma : (ma + exitTargetCfg.sigma * std);
       const targetLabel = exitTargetCfg.useMean ? "Mean" : `+${exitTargetCfg.sigma}σ`;
       if (bar.close > targetLevel) {
-        exitPrice = targetLevel;
+        // Exit at close price (not the band level) — the band is the trigger, not the fill price
+        // This avoids the bug where entry > target band → exit at band → guaranteed loss
+        exitPrice = bar.close;
         exitReason = "profit_target";
         exitDetail = `✅ ${targetLabel} TARGET: Close ₹${bar.close.toFixed(2)} > ${targetLabel} ₹${targetLevel.toFixed(2)}`;
       }
@@ -286,7 +288,8 @@ export async function runBollingerMRBacktest(params: BollingerMRParams): Promise
       if (!exitReason) {
         const stopLevel = ma - EXIT_STOP_SIGMA * std;
         if (bar.close < stopLevel) {
-          exitPrice = stopLevel;
+          // Exit at close price (not band level) — in reality you'd sell at market
+          exitPrice = bar.close;
           exitReason = "price_action_close_above_prev_high";
           exitDetail = `🛑 −${EXIT_STOP_SIGMA}σ STOP: Close ₹${bar.close.toFixed(2)} < −${EXIT_STOP_SIGMA}σ ₹${stopLevel.toFixed(2)}`;
         }
