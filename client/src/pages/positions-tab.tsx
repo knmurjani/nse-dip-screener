@@ -450,6 +450,9 @@ function DeployFormModal({ open, onClose, defaultStrategy, cloneFrom }: {
     allowParallel: false,
     universe: "nifty500",
     benchmark: "nifty50",
+    atrVolatilityPct: "",
+    minAvgVolume: "",
+    require200DMA: false,
   });
 
   useEffect(() => {
@@ -470,6 +473,9 @@ function DeployFormModal({ open, onClose, defaultStrategy, cloneFrom }: {
         allowParallel: !!cloneFrom.allow_parallel,
         universe: cloneFrom.universe || "nifty500",
         benchmark: cloneFrom.benchmark || "nifty50",
+        atrVolatilityPct: cloneFrom.atr_volatility_pct != null ? String(cloneFrom.atr_volatility_pct) : "",
+        minAvgVolume: cloneFrom.min_avg_volume != null ? String(cloneFrom.min_avg_volume) : "",
+        require200DMA: !!cloneFrom.require_200dma,
       });
     } else {
       setForm((f) => ({ ...f, strategyId: defaultStrategy }));
@@ -496,6 +502,10 @@ function DeployFormModal({ open, onClose, defaultStrategy, cloneFrom }: {
         body.targetBandSigma = form.targetBandSigma;
         body.stopLossSigma = form.stopLossSigma && form.stopLossSigma !== "none" ? Number(form.stopLossSigma) : null;
         body.allowParallel = form.allowParallel;
+        // Quality filters
+        body.atrVolatilityPct = form.atrVolatilityPct ? Number(form.atrVolatilityPct) : null;
+        body.minAvgVolume = form.minAvgVolume ? Number(form.minAvgVolume) : null;
+        body.require200DMA = form.require200DMA;
       }
       const res = await apiRequest("POST", "/api/deployments", body);
       return res.json();
@@ -721,6 +731,43 @@ function DeployFormModal({ open, onClose, defaultStrategy, cloneFrom }: {
                   data-testid="deploy-allow-parallel"
                 />
                 <Label className="text-xs">Allow parallel positions (same stock)</Label>
+              </div>
+            </div>
+          )}
+
+          {/* Quality Filters */}
+          {isBollinger && (
+            <div className="space-y-3 border-t pt-3">
+              <p className="text-[11px] font-semibold text-muted-foreground">Quality Filters</p>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <Label className="text-xs">ATR Volatility %</Label>
+                  <Input
+                    type="number" step="0.5" placeholder="OFF (e.g. 2)"
+                    value={form.atrVolatilityPct}
+                    onChange={(e) => setForm({ ...form, atrVolatilityPct: e.target.value })}
+                    className="h-9 text-xs" data-testid="deploy-atr-vol"
+                  />
+                  <p className="text-[9px] text-muted-foreground/60">ATR(14)/Close &gt; threshold</p>
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs">Min Avg Volume</Label>
+                  <Input
+                    type="number" placeholder="OFF (e.g. 500000)"
+                    value={form.minAvgVolume}
+                    onChange={(e) => setForm({ ...form, minAvgVolume: e.target.value })}
+                    className="h-9 text-xs" data-testid="deploy-min-vol"
+                  />
+                  <p className="text-[9px] text-muted-foreground/60">20-day avg volume</p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <Switch
+                  checked={form.require200DMA}
+                  onCheckedChange={(c) => setForm({ ...form, require200DMA: c })}
+                  data-testid="deploy-200dma"
+                />
+                <Label className="text-xs">200-DMA Trend Filter (Close &gt; 200-SMA)</Label>
               </div>
             </div>
           )}
@@ -1644,6 +1691,9 @@ function SettingsModal({ open, onClose, deployment }: {
     allowParallel: !!d.allow_parallel,
     universe: d.universe || "nifty500",
     benchmark: d.benchmark || "nifty50",
+    atrVolatilityPct: d.atr_volatility_pct != null ? String(d.atr_volatility_pct) : "",
+    minAvgVolume: d.min_avg_volume != null ? String(d.min_avg_volume) : "",
+    require200DMA: !!d.require_200dma,
   });
 
   // Reset form when deployment changes
@@ -1660,6 +1710,9 @@ function SettingsModal({ open, onClose, deployment }: {
       allowParallel: !!d.allow_parallel,
       universe: d.universe || "nifty500",
       benchmark: d.benchmark || "nifty50",
+      atrVolatilityPct: d.atr_volatility_pct != null ? String(d.atr_volatility_pct) : "",
+      minAvgVolume: d.min_avg_volume != null ? String(d.min_avg_volume) : "",
+      require200DMA: !!d.require_200dma,
     });
   }, [d]);
 
@@ -1679,6 +1732,10 @@ function SettingsModal({ open, onClose, deployment }: {
         body.targetBandSigma = form.targetBandSigma;
         body.stopLossSigma = form.stopLossSigma && form.stopLossSigma !== "none" ? Number(form.stopLossSigma) : null;
         body.allowParallel = form.allowParallel;
+        // Quality filters
+        body.atrVolatilityPct = form.atrVolatilityPct ? Number(form.atrVolatilityPct) : null;
+        body.minAvgVolume = form.minAvgVolume ? Number(form.minAvgVolume) : null;
+        body.require200DMA = form.require200DMA;
       }
       const res = await apiRequest("PUT", `/api/deployments/${d.id}`, body);
       return res.json();
@@ -1828,6 +1885,43 @@ function SettingsModal({ open, onClose, deployment }: {
                   data-testid="settings-allow-parallel"
                 />
                 <Label className="text-xs">Allow parallel positions</Label>
+              </div>
+            </div>
+          )}
+
+          {/* Quality Filters */}
+          {isBollinger && (
+            <div className="space-y-3 border-t pt-3">
+              <p className="text-[11px] font-semibold text-muted-foreground">Quality Filters</p>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <Label className="text-xs">ATR Volatility %</Label>
+                  <Input
+                    type="number" step="0.5" placeholder="OFF (e.g. 2)"
+                    value={form.atrVolatilityPct}
+                    onChange={(e) => setForm({ ...form, atrVolatilityPct: e.target.value })}
+                    className="h-9 text-xs" data-testid="settings-atr-vol"
+                  />
+                  <p className="text-[9px] text-muted-foreground/60">ATR(14)/Close &gt; threshold</p>
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs">Min Avg Volume</Label>
+                  <Input
+                    type="number" placeholder="OFF (e.g. 500000)"
+                    value={form.minAvgVolume}
+                    onChange={(e) => setForm({ ...form, minAvgVolume: e.target.value })}
+                    className="h-9 text-xs" data-testid="settings-min-vol"
+                  />
+                  <p className="text-[9px] text-muted-foreground/60">20-day avg volume</p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <Switch
+                  checked={form.require200DMA}
+                  onCheckedChange={(c) => setForm({ ...form, require200DMA: c })}
+                  data-testid="settings-200dma"
+                />
+                <Label className="text-xs">200-DMA Trend Filter (Close &gt; 200-SMA)</Label>
               </div>
             </div>
           )}

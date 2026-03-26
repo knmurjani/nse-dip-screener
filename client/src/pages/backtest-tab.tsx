@@ -154,6 +154,13 @@ export default function BacktestTab() {
   const [formProfitMult, setFormProfitMult] = useState("0.5");
   const [formPriceAction, setFormPriceAction] = useState(true);
 
+  // Quality filters (default OFF)
+  const [formAtrVolEnabled, setFormAtrVolEnabled] = useState(false);
+  const [formAtrVolPct, setFormAtrVolPct] = useState("2");
+  const [formMinVolEnabled, setFormMinVolEnabled] = useState(false);
+  const [formMinVolume, setFormMinVolume] = useState("500000");
+  const [formRequire200DMA, setFormRequire200DMA] = useState(false);
+
   const isBollinger = strategyId === "bollinger_bounce";
   const isATR = strategyId === "atr_dip_buyer";
 
@@ -221,6 +228,12 @@ export default function BacktestTab() {
         body.entryCondition = formEntryCond;
         body.exitTarget = formExitTarget;
         body.exitStopBand = formExitStopBand;
+      }
+      // Quality filters
+      if (isBollinger) {
+        if (formAtrVolEnabled) body.atrVolatilityPct = Number(formAtrVolPct);
+        if (formMinVolEnabled) body.minAvgVolume = Number(formMinVolume);
+        if (formRequire200DMA) body.require200DMA = true;
       }
       if (isATR) {
         body.dmaLength = Number(formDmaLength);
@@ -556,6 +569,56 @@ export default function BacktestTab() {
                     </label>
                   </div>
                 )}
+              </div>
+              {/* Quality Filters section */}
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 pt-2 border-t border-border">
+                <div>
+                  <label className="flex items-center gap-2 mb-1">
+                    <input
+                      type="checkbox" checked={formAtrVolEnabled}
+                      onChange={e => setFormAtrVolEnabled(e.target.checked)}
+                      className="h-3.5 w-3.5 rounded border-input accent-primary" data-testid="input-atr-vol-filter"
+                    />
+                    <span className="text-[10px] text-muted-foreground">ATR Volatility Filter</span>
+                  </label>
+                  {formAtrVolEnabled && (
+                    <Input
+                      type="number" step="0.5" value={formAtrVolPct} onChange={e => setFormAtrVolPct(e.target.value)}
+                      placeholder="2" className="h-8 text-xs tabular-nums"
+                      data-testid="input-atr-vol-pct"
+                    />
+                  )}
+                  {formAtrVolEnabled && <span className="text-[9px] text-muted-foreground/60">ATR(14)/Close &gt; {formAtrVolPct}%</span>}
+                </div>
+                <div>
+                  <label className="flex items-center gap-2 mb-1">
+                    <input
+                      type="checkbox" checked={formMinVolEnabled}
+                      onChange={e => setFormMinVolEnabled(e.target.checked)}
+                      className="h-3.5 w-3.5 rounded border-input accent-primary" data-testid="input-min-vol-filter"
+                    />
+                    <span className="text-[10px] text-muted-foreground">Min Avg Volume</span>
+                  </label>
+                  {formMinVolEnabled && (
+                    <Input
+                      type="number" value={formMinVolume} onChange={e => setFormMinVolume(e.target.value)}
+                      placeholder="500000" className="h-8 text-xs tabular-nums"
+                      data-testid="input-min-volume"
+                    />
+                  )}
+                  {formMinVolEnabled && <span className="text-[9px] text-muted-foreground/60">20d avg vol &gt; {Number(formMinVolume).toLocaleString()}</span>}
+                </div>
+                <div className="flex items-start pt-0.5">
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox" checked={formRequire200DMA}
+                      onChange={e => setFormRequire200DMA(e.target.checked)}
+                      className="h-3.5 w-3.5 rounded border-input accent-primary" data-testid="input-200dma-filter"
+                    />
+                    <span className="text-[10px] text-muted-foreground">200-DMA Trend Filter</span>
+                  </label>
+                  {formRequire200DMA && <span className="text-[9px] text-muted-foreground/60 ml-1">Close &gt; 200-SMA</span>}
+                </div>
               </div>
               </>
             )}
@@ -1374,7 +1437,7 @@ function StrategyRulesCard({ strategyId, paramsJson }: { strategyId: string; par
                 <RuleRow label="Price Action Exit" value={tpl.exit?.priceActionExit ?? "N/A"} />
                 <RuleRow label="Max Hold Days" value={tpl.exit?.maxHoldDays ?? "No limit"} />
               </div>
-              {/* DATA */}
+              {/* DATA + QUALITY FILTERS */}
               <div>
                 <h4 className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground/70 mb-1.5 border-b border-border pb-1">
                   Data
@@ -1384,6 +1447,16 @@ function StrategyRulesCard({ strategyId, paramsJson }: { strategyId: string; par
                 <RuleRow label="Data Source" value={tpl.data?.dataSource ?? "N/A"} />
                 {tpl.period && (
                   <RuleRow label="Period" value={`${tpl.period.from} \u2192 ${tpl.period.to}`} />
+                )}
+                {tpl.qualityFilters && (
+                  <>
+                    <h4 className="text-[10px] font-bold uppercase tracking-wider text-muted-foreground/70 mb-1.5 mt-3 border-b border-border pb-1">
+                      Quality Filters
+                    </h4>
+                    <RuleRow label="ATR Volatility" value={tpl.qualityFilters.atrVolatility ?? "OFF"} />
+                    <RuleRow label="Min Avg Volume" value={tpl.qualityFilters.minAvgVolume ?? "OFF"} />
+                    <RuleRow label="200-DMA Trend" value={tpl.qualityFilters.require200DMA ?? "OFF"} />
+                  </>
                 )}
               </div>
             </div>

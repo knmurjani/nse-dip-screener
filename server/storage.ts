@@ -451,6 +451,11 @@ sqlite.exec(`
 try { sqlite.exec(`ALTER TABLE deployments ADD COLUMN universe TEXT DEFAULT 'nifty500'`); } catch {}
 try { sqlite.exec(`ALTER TABLE deployments ADD COLUMN benchmark TEXT DEFAULT 'nifty50'`); } catch {}
 
+// Migration: add quality filter columns to deployments
+try { sqlite.exec(`ALTER TABLE deployments ADD COLUMN atr_volatility_pct REAL DEFAULT NULL`); } catch {}
+try { sqlite.exec(`ALTER TABLE deployments ADD COLUMN min_avg_volume REAL DEFAULT NULL`); } catch {}
+try { sqlite.exec(`ALTER TABLE deployments ADD COLUMN require_200dma INTEGER DEFAULT 0`); } catch {}
+
 // ─── IST Helper ───
 
 export function istNow(): string {

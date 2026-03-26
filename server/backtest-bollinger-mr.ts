@@ -75,6 +75,32 @@ function computeStdDev(bars: Bar[], idx: number, period: number): number {
   return Math.sqrt(sumSq / period);
 }
 
+// ─── Quality Filter Helpers ───
+
+function computeATR(bars: Bar[], idx: number, period: number = 14): number {
+  if (idx < period) return 0;
+  let atrSum = 0;
+  for (let i = idx - period + 1; i <= idx; i++) {
+    const high = bars[i].high;
+    const low = bars[i].low;
+    const prevClose = bars[i - 1].close;
+    const tr = Math.max(high - low, Math.abs(high - prevClose), Math.abs(low - prevClose));
+    atrSum += tr;
+  }
+  return atrSum / period;
+}
+
+function computeAvgVolume(bars: Bar[], idx: number, period: number = 20): number {
+  if (idx < period - 1) return 0;
+  let sum = 0;
+  for (let i = idx - period + 1; i <= idx; i++) sum += bars[i].volume;
+  return sum / period;
+}
+
+function computeSMA200(bars: Bar[], idx: number): number {
+  return computeSMA(bars, idx, 200);
+}
+
 function pearsonCorrelation(x: number[], y: number[]): number {
   const n = Math.min(x.length, y.length);
   if (n < 10) return 0;
@@ -110,6 +136,10 @@ export interface BollingerMRParams {
   universeOverride?: typeof NSE_UNIVERSE; // optional filtered universe
   benchmarkTicker?: string; // Yahoo Finance ticker for benchmark (default: ^NSEI)
   benchmarkLabel?: string;  // Human-readable benchmark name
+  // Quality filters (optional, default OFF)
+  atrVolatilityPct?: number;   // ATR(14)/close > threshold% (e.g. 2). 0 or undefined = disabled
+  minAvgVolume?: number;       // 20-day avg volume > threshold (e.g. 500000). 0 or undefined = disabled
+  require200DMA?: boolean;     // Only enter if close > 200-day SMA. false/undefined = disabled
 }
 
 interface OpenPosition {
@@ -170,6 +200,10 @@ export async function runBollingerMRBacktest(params: BollingerMRParams): Promise
   const ABS_STOP = params.absoluteStopPct;
   const TRAIL_STOP = params.trailingStopPct;
   const universe = params.universeOverride || NSE_UNIVERSE;
+  // Quality filters
+  const ATR_VOL_PCT = params.atrVolatilityPct || 0;
+  const MIN_AVG_VOL = params.minAvgVolume || 0;
+  const REQUIRE_200DMA = params.require200DMA || false;
 
   // Fixed position size (no compounding — matches Python)
   const POSITION_SIZE = Math.floor(CAPITAL / MAX_POS);
@@ -407,6 +441,21 @@ export async function runBollingerMRBacktest(params: BollingerMRParams): Promise
           if (!ALLOW_PARALLEL && openPositions.some(p => p.symbol === symbol)) {
             watchlist.delete(symbol);
             continue;
+          }
+
+          // ─── Quality Filters (all use data up to current bar only) ───
+          if (ATR_VOL_PCT > 0) {
+            const atr14 = computeATR(bars, tIdx, 14);
+            const atrPct = bar.close > 0 ? (atr14 / bar.close) * 100 : 0;
+            if (atrPct <= ATR_VOL_PCT) { watchlist.delete(symbol); continue; }
+          }
+          if (MIN_AVG_VOL > 0) {
+            const avgVol = computeAvgVolume(bars, tIdx, 20);
+            if (avgVol <= MIN_AVG_VOL) { watchlist.delete(symbol); continue; }
+          }
+          if (REQUIRE_200DMA) {
+            const sma200 = computeSMA200(bars, tIdx);
+            if (sma200 === 0 || bar.close <= sma200) { watchlist.delete(symbol); continue; }
           }
 
           // Entry price = the CLOSE price (actual market price)

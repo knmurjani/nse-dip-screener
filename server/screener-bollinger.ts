@@ -35,7 +35,7 @@ async function fetchBars(symbol: string): Promise<Bar[] | null> {
       if (token) {
         const end = new Date();
         const start = new Date();
-        start.setDate(start.getDate() - 60); // 60 days for 20-day MA + buffer
+        start.setDate(start.getDate() - 250); // 250 days for 200-DMA + buffer
         const data = await throttledKite(k => k.getHistoricalData(token, "day", start.toISOString().split("T")[0], end.toISOString().split("T")[0]));
         if (data && data.length > 0)
           return data.filter((d: any) => d.close > 0).map((d: any) => ({
@@ -48,7 +48,7 @@ async function fetchBars(symbol: string): Promise<Bar[] | null> {
   try {
     const end = new Date();
     const start = new Date();
-    start.setDate(start.getDate() - 60);
+    start.setDate(start.getDate() - 250); // 250 days for 200-DMA + buffer
     const result = await yahooFinance.chart(symbol, { period1: start, period2: end, interval: "1d" });
     if (!result?.quotes) return null;
     return result.quotes.filter((q: any) => q.close !== null && q.close > 0)
@@ -98,6 +98,34 @@ function computeStdDev(closes: number[], period: number): number {
   return Math.sqrt(variance);
 }
 
+// ─── Quality Filter Helpers ───
+
+function computeATR(bars: Bar[], period: number = 14): number {
+  if (bars.length < period + 1) return 0;
+  let atrSum = 0;
+  for (let i = bars.length - period; i < bars.length; i++) {
+    const tr = Math.max(
+      bars[i].high - bars[i].low,
+      Math.abs(bars[i].high - bars[i - 1].close),
+      Math.abs(bars[i].low - bars[i - 1].close)
+    );
+    atrSum += tr;
+  }
+  return atrSum / period;
+}
+
+function computeAvgVolume(bars: Bar[], period: number = 20): number {
+  if (bars.length < period) return 0;
+  const slice = bars.slice(-period);
+  return slice.reduce((s, b) => s + b.volume, 0) / period;
+}
+
+function computeSMA200(bars: Bar[]): number {
+  if (bars.length < 200) return 0;
+  const slice = bars.slice(-200);
+  return slice.reduce((s, b) => s + b.close, 0) / 200;
+}
+
 // ─── Bollinger Bounce Signal ───
 
 export interface BollingerSignal {
@@ -120,6 +148,11 @@ export interface BollingerSignal {
   setupScore: number;        // distance below mean — deeper = higher conviction
   marketCap: number;
   status: string;  // "watchlist" | "signal" | "neutral"
+  // Quality filter data
+  atrPct: number;      // ATR(14)/close * 100
+  avgVolume: number;   // 20-day average volume
+  sma200: number;      // 200-day SMA (0 if insufficient data)
+  aboveSMA200: boolean; // close > 200-DMA
 }
 
 export interface BollingerScreenerResult {
@@ -192,6 +225,12 @@ export async function runBollingerScreener(): Promise<BollingerScreenerResult> {
         else if (belowMinus3) { status = "watchlist"; belowMinus2Count++; }
         else if (belowMinus2) { status = "watchlist"; belowMinus2Count++; }
 
+        // Quality filter data (computed from bars up to current bar only)
+        const atr14 = computeATR(bars, 14);
+        const atrPct = close > 0 ? (atr14 / close) * 100 : 0;
+        const avgVolume20 = computeAvgVolume(bars, 20);
+        const sma200 = computeSMA200(bars);
+
         const signal: BollingerSignal = {
           symbol: stock.symbol.replace(".NS", ""),
           name: quote.name || stock.name,
@@ -212,6 +251,10 @@ export async function runBollingerScreener(): Promise<BollingerScreenerResult> {
           setupScore: Math.round(Math.abs(distanceToMeanPct) * 100) / 100, // deeper dip = higher score
           marketCap: Math.round(quote.marketCap),
           status,
+          atrPct: Math.round(atrPct * 100) / 100,
+          avgVolume: Math.round(avgVolume20),
+          sma200: Math.round(sma200 * 100) / 100,
+          aboveSMA200: sma200 > 0 && close > sma200,
         };
 
         universe.push(signal);

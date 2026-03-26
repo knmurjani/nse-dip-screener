@@ -376,7 +376,7 @@ export async function registerRoutes(
     req.setTimeout(300000);
     res.setTimeout(300000);
     try {
-      const { name, capital, maxPositions, years, fromDate, toDate, strategyId, absoluteStopPct, trailingStopPct, maPeriod, entryBandSigma, stopLossSigma, targetBandSigma, maxHoldDays, allowParallelPositions, watchlistCondition, entryCondition, exitTarget, exitStopBand, dmaLength, dipThresholdPct, atrFilterThreshold, limitOrderMultiple, profitTargetMultiple, priceActionExit, universe, benchmark } = req.body;
+      const { name, capital, maxPositions, years, fromDate, toDate, strategyId, absoluteStopPct, trailingStopPct, maPeriod, entryBandSigma, stopLossSigma, targetBandSigma, maxHoldDays, allowParallelPositions, watchlistCondition, entryCondition, exitTarget, exitStopBand, dmaLength, dipThresholdPct, atrFilterThreshold, limitOrderMultiple, profitTargetMultiple, priceActionExit, universe, benchmark, atrVolatilityPct, minAvgVolume, require200DMA } = req.body;
       const strategy = strategyId || "atr_dip_buyer";
 
       // Filter universe based on selection
@@ -429,6 +429,10 @@ export async function registerRoutes(
           benchmarkTicker,
           benchmarkLabel,
           ...bollingerConditions,
+          // Quality filters
+          atrVolatilityPct: atrVolatilityPct ? Number(atrVolatilityPct) : undefined,
+          minAvgVolume: minAvgVolume ? Number(minAvgVolume) : undefined,
+          require200DMA: !!require200DMA,
         });
       } else {
         clearBacktestCache();
@@ -500,6 +504,11 @@ export async function registerRoutes(
           benchmark: benchmarkLabel || "NIFTY 50",
           dataSource: result.summary.dataSource,
         },
+        qualityFilters: {
+          atrVolatility: atrVolatilityPct ? `ATR(14)/Close > ${atrVolatilityPct}%` : "OFF",
+          minAvgVolume: minAvgVolume ? `20-day Avg Vol > ${Number(minAvgVolume).toLocaleString()}` : "OFF",
+          require200DMA: require200DMA ? "Close > 200-DMA" : "OFF",
+        },
       };
 
       const allParams = {
@@ -511,6 +520,10 @@ export async function registerRoutes(
         watchlistCondition, entryCondition, exitTarget, exitStopBand,
         // ATR-specific params
         dmaLength, dipThresholdPct, atrFilterThreshold, limitOrderMultiple, profitTargetMultiple, priceActionExit,
+        // Quality filters
+        atrVolatilityPct: atrVolatilityPct ? Number(atrVolatilityPct) : undefined,
+        minAvgVolume: minAvgVolume ? Number(minAvgVolume) : undefined,
+        require200DMA: !!require200DMA,
         // Comprehensive rules template
         rulesTemplate,
         // Human-readable rules for this specific run
@@ -779,21 +792,24 @@ export async function registerRoutes(
 
   app.post("/api/deployments", (req, res) => {
     try {
-      const { name, strategyId, mode, capital, maxPositions, maxHoldDays, absoluteStopPct, trailingStopPct, maPeriod, entryBandSigma, targetBandSigma, stopLossSigma, allowParallel, universe, benchmark } = req.body;
+      const { name, strategyId, mode, capital, maxPositions, maxHoldDays, absoluteStopPct, trailingStopPct, maPeriod, entryBandSigma, targetBandSigma, stopLossSigma, allowParallel, universe, benchmark, atrVolatilityPct, minAvgVolume, require200DMA } = req.body;
       if (!strategyId || !capital) return res.status(400).json({ error: "strategyId and capital are required" });
       const now = istNow();
       const deployName = name || `${strategyId} ${mode || 'paper'} ${now.split(" ")[0]}`;
       const sqliteDb = new Database(DB_PATH);
       const result = sqliteDb.prepare(`
-        INSERT INTO deployments (name, strategy_id, mode, status, created_at, initial_capital, current_capital, max_positions, max_hold_days, absolute_stop_pct, trailing_stop_pct, ma_period, entry_band_sigma, target_band_sigma, stop_loss_sigma, allow_parallel, universe, benchmark)
-        VALUES (?, ?, ?, 'active', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO deployments (name, strategy_id, mode, status, created_at, initial_capital, current_capital, max_positions, max_hold_days, absolute_stop_pct, trailing_stop_pct, ma_period, entry_band_sigma, target_band_sigma, stop_loss_sigma, allow_parallel, universe, benchmark, atr_volatility_pct, min_avg_volume, require_200dma)
+        VALUES (?, ?, ?, 'active', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       `).run(
         deployName, strategyId, mode || 'paper', now, capital, capital,
         maxPositions ?? 10, maxHoldDays ?? 0,
         absoluteStopPct ?? null, trailingStopPct ?? null,
         maPeriod ?? 20, entryBandSigma ?? 2, targetBandSigma ?? 2, stopLossSigma ?? null,
         allowParallel ? 1 : 0,
-        universe || 'nifty500', benchmark || 'nifty50'
+        universe || 'nifty500', benchmark || 'nifty50',
+        atrVolatilityPct ? Number(atrVolatilityPct) : null,
+        minAvgVolume ? Number(minAvgVolume) : null,
+        require200DMA ? 1 : 0
       );
       const id = result.lastInsertRowid;
       // Record initial deposit in fund_transactions
@@ -844,13 +860,15 @@ export async function registerRoutes(
         maPeriod: 'ma_period', entryBandSigma: 'entry_band_sigma',
         targetBandSigma: 'target_band_sigma', stopLossSigma: 'stop_loss_sigma',
         allowParallel: 'allow_parallel',
-        universe: 'universe', benchmark: 'benchmark'
+        universe: 'universe', benchmark: 'benchmark',
+        atrVolatilityPct: 'atr_volatility_pct', minAvgVolume: 'min_avg_volume',
+        require200DMA: 'require_200dma',
       };
       for (const [jsKey, dbCol] of Object.entries(updatableFields)) {
         if (req.body[jsKey] !== undefined) {
           const oldVal = deployment[dbCol];
           let newVal = req.body[jsKey];
-          if (jsKey === 'allowParallel') newVal = newVal ? 1 : 0;
+          if (jsKey === 'allowParallel' || jsKey === 'require200DMA') newVal = newVal ? 1 : 0;
           if (String(oldVal) !== String(newVal)) {
             sqliteDb.prepare(`UPDATE deployments SET ${dbCol} = ? WHERE id = ?`).run(newVal, id);
             sqliteDb.prepare(`INSERT INTO deployment_changelog (deployment_id, date, field, old_value, new_value) VALUES (?, ?, ?, ?, ?)`)

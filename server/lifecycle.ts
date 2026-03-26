@@ -157,7 +157,7 @@ async function getBollingerBands(
     const clean = symbol.replace(".NS", "");
     const endDate = new Date();
     const startDate = new Date();
-    startDate.setDate(startDate.getDate() - 60); // fetch 60 days to ensure we have maPeriod trading days
+    startDate.setDate(startDate.getDate() - 250); // fetch 250 days to ensure enough for 200-DMA
 
     let data: any[] = [];
 
@@ -479,8 +479,28 @@ export async function runDeploymentLifecycle(deploymentId: number): Promise<Life
     const portfolioValue = cashAvailable + investedValue;
     const positionSize = portfolioValue / deployment.max_positions;
 
+    // Apply quality filters to signals based on deployment settings
+    let filteredSignals = signals;
+    if (deployment.strategy_id !== "atr_dip_buyer") {
+      filteredSignals = signals.filter((signal: any) => {
+        // ATR Volatility filter
+        if (deployment.atr_volatility_pct && deployment.atr_volatility_pct > 0) {
+          if (!signal.atrPct || signal.atrPct <= deployment.atr_volatility_pct) return false;
+        }
+        // Min Average Volume filter
+        if (deployment.min_avg_volume && deployment.min_avg_volume > 0) {
+          if (!signal.avgVolume || signal.avgVolume <= deployment.min_avg_volume) return false;
+        }
+        // 200-DMA Trend filter
+        if (deployment.require_200dma) {
+          if (!signal.aboveSMA200) return false;
+        }
+        return true;
+      });
+    }
+
     let entriesPlaced = 0;
-    for (const signal of signals) {
+    for (const signal of filteredSignals) {
       if (entriesPlaced >= slotsAvailable) break;
       const sym = signal.symbol?.replace(".NS", "") || signal.symbol;
       if (existingSymbols.has(sym) && !deployment.allow_parallel) continue;
