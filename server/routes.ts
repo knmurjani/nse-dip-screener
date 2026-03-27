@@ -14,6 +14,7 @@ import { getPortfolioSummary, runDailyLifecycle } from "./live-portfolio";
 import { runBollingerScreener, clearBollingerCache } from "./screener-bollinger";
 import { getAllStrategies, getStrategy } from "./strategies";
 import { runDeploymentLifecycle, runPreMarketCheck, runEndOfDaySummary, isMarketOpen } from "./lifecycle";
+import { syncDeploymentOrders } from "./order-sync";
 import { sendMorningBrief, sendDailyPnLSummary, sendTelegramMessage } from "./telegram";
 import { startTelegramBot } from "./telegram-bot";
 import { istNow as getIstNow } from "./storage";
@@ -1198,6 +1199,28 @@ export async function registerRoutes(
     } catch { /* Telegram failure OK */ }
 
     res.json({ cancelled: cancelledCount, total: pendingOrders.length, errors: errors.length > 0 ? errors : undefined });
+  });
+
+  // ─── Sync Order Statuses from Kite ───
+
+  app.post("/api/deployments/:id/sync-orders", async (req, res) => {
+    try {
+      const id = parseInt(req.params.id);
+      const deployment = getDeployment(id);
+      if (!deployment) return res.status(404).json({ error: "Deployment not found" });
+      if (deployment.mode !== "real") {
+        return res.status(400).json({ error: "Order sync is only available for real-mode deployments" });
+      }
+      if (!isAuthenticated()) {
+        return res.status(400).json({ error: "Kite not authenticated — please connect first" });
+      }
+      logSystem("order_sync", "manual_trigger", `Manual order sync for deployment #${id}`);
+      const result = await syncDeploymentOrders(id);
+      res.json(result);
+    } catch (error: any) {
+      console.error("[API] Order sync error:", error.message);
+      res.status(500).json({ error: "Order sync failed", message: error.message });
+    }
   });
 
   // ─── Lifecycle Manual Triggers ───

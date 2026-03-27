@@ -1,10 +1,11 @@
 import cron from "node-cron";
 import { runScreener, clearCache } from "./screener";
 import { runDailyLifecycle } from "./live-portfolio";
-import { runAllActiveLifecycles, runAllPreMarketChecks, runAllEndOfDaySummaries } from "./lifecycle";
+import { runAllActiveLifecycles, runAllPreMarketChecks, runAllEndOfDaySummaries, isMarketOpen } from "./lifecycle";
 import { sendSystemAlert, sendTelegramMessage } from "./telegram";
 import { logSystem, getActiveDeployments } from "./storage";
 import { isAuthenticated } from "./kite";
+import { syncAllPendingOrders } from "./order-sync";
 
 /**
  * Cron-based scheduler — refreshes screener data and runs deployment lifecycles.
@@ -108,6 +109,24 @@ export function startScheduler() {
     } catch (e: any) {
       console.error("[Scheduler] EOD summary failed:", e.message);
       logSystem("scheduler", "eod_error", e.message);
+    }
+  });
+
+  // Every 5 minutes during market hours — sync pending order statuses from Kite
+  // 9:15 AM - 3:30 PM IST weekdays; isMarketOpen() guards the actual execution
+  cron.schedule("*/5 * * * 1-5", async () => {
+    if (!isMarketOpen()) return;
+    if (!isAuthenticated()) return;
+    try {
+      const results = await syncAllPendingOrders();
+      const totalSynced = results.reduce((s, r) => s + r.synced, 0);
+      if (totalSynced > 0) {
+        console.log(`[Scheduler] Order sync: ${totalSynced} orders updated across ${results.length} deployments`);
+        logSystem("scheduler", "order_sync", `${totalSynced} orders synced across ${results.length} deployments`);
+      }
+    } catch (e: any) {
+      console.error("[Scheduler] Order sync error:", e.message);
+      logSystem("scheduler", "order_sync_error", e.message);
     }
   });
 

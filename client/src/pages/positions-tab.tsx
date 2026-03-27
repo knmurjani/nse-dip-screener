@@ -1008,7 +1008,7 @@ function DeploymentDashboard({ deployment, onSettings, onAddFunds, onWithdraw, o
 
         {/* Orders Log */}
         <TabsContent value="orders" className="mt-3">
-          <OrdersTable orders={orders} deploymentId={d.id} />
+          <OrdersTable orders={orders} deploymentId={d.id} deploymentMode={d.mode} />
         </TabsContent>
 
         {/* Fund Statement */}
@@ -1376,13 +1376,34 @@ function orderStatusBadge(status: string): { cls: string } {
   }
 }
 
-function OrdersTable({ orders, deploymentId }: { orders: OrderLog[]; deploymentId: number }) {
+function OrdersTable({ orders, deploymentId, deploymentMode }: { orders: OrderLog[]; deploymentId: number; deploymentMode: string }) {
   const [sortField, setSortField] = useState<string>("placed_at");
   const [sortDir, setSortDir] = useState<"asc" | "desc">("desc");
   const [retryingId, setRetryingId] = useState<number | null>(null);
   const [cancellingId, setCancellingId] = useState<number | null>(null);
   const [cancellingAll, setCancellingAll] = useState(false);
+  const [syncing, setSyncing] = useState(false);
   const { toast } = useToast();
+
+  const handleSyncOrders = async () => {
+    setSyncing(true);
+    try {
+      const res = await apiRequest("POST", `/api/deployments/${deploymentId}/sync-orders`);
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Sync failed");
+      const parts: string[] = [];
+      if (data.filled > 0) parts.push(`${data.filled} filled`);
+      if (data.rejected > 0) parts.push(`${data.rejected} rejected`);
+      if (data.cancelled > 0) parts.push(`${data.cancelled} cancelled`);
+      const desc = data.synced > 0 ? `${data.synced} orders updated (${parts.join(", ")})` : "All orders are up to date";
+      toast({ title: "Orders synced", description: desc });
+      queryClient.invalidateQueries();
+    } catch (err: any) {
+      toast({ title: "Sync failed", description: err.message, variant: "destructive" });
+    } finally {
+      setSyncing(false);
+    }
+  };
 
   const pendingOrders = orders.filter(o => ['OPEN', 'PENDING', 'PLACED'].includes(o.status));
 
@@ -1467,22 +1488,39 @@ function OrdersTable({ orders, deploymentId }: { orders: OrderLog[]; deploymentI
   return (
     <Card>
       {/* Cancel All Pending header */}
-      {pendingOrders.length > 0 && (
+      {(deploymentMode === "real" || pendingOrders.length > 0) && (
         <div className="flex items-center justify-between px-4 py-2 border-b border-border">
           <span className="text-[11px] text-muted-foreground">
-            {pendingOrders.length} pending order{pendingOrders.length > 1 ? "s" : ""}
+            {pendingOrders.length > 0 ? `${pendingOrders.length} pending order${pendingOrders.length > 1 ? "s" : ""}` : `${orders.length} orders`}
           </span>
-          <Button
-            variant="outline"
-            size="sm"
-            className="h-7 text-xs gap-1 text-loss hover:text-loss"
-            onClick={handleCancelAll}
-            disabled={cancellingAll}
-            data-testid="button-cancel-all-orders"
-          >
-            <Ban className={`w-3 h-3 ${cancellingAll ? "animate-spin" : ""}`} />
-            {cancellingAll ? "Cancelling..." : "Cancel All Pending"}
-          </Button>
+          <div className="flex items-center gap-2">
+            {deploymentMode === "real" && (
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-7 text-xs gap-1"
+                onClick={handleSyncOrders}
+                disabled={syncing}
+                data-testid="button-refresh-orders"
+              >
+                <RotateCw className={`w-3 h-3 ${syncing ? "animate-spin" : ""}`} />
+                {syncing ? "Syncing..." : "Refresh Orders"}
+              </Button>
+            )}
+            {pendingOrders.length > 0 && (
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-7 text-xs gap-1 text-loss hover:text-loss"
+                onClick={handleCancelAll}
+                disabled={cancellingAll}
+                data-testid="button-cancel-all-orders"
+              >
+                <Ban className={`w-3 h-3 ${cancellingAll ? "animate-spin" : ""}`} />
+                {cancellingAll ? "Cancelling..." : "Cancel All Pending"}
+              </Button>
+            )}
+          </div>
         </div>
       )}
       <CardContent className="px-0 pb-0 pt-0">
