@@ -47,7 +47,7 @@ export interface ReconcileResult {
 
 // ─── Shared helpers for position creation / closure ───
 
-function createPositionFromFill(order: any, tradingsymbol: string, averagePrice: number, filledQty: number): void {
+export function createPositionFromFill(order: any, tradingsymbol: string, averagePrice: number, filledQty: number): void {
   const sqliteDb = new Database(DB_PATH);
   const now = istNow();
   const dateStr = now.split(" ")[0];

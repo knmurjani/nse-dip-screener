@@ -21,7 +21,7 @@ import {
   TrendingUp, TrendingDown, ArrowUpDown, ArrowUp, ArrowDown,
   Wallet, BarChart3, AlertTriangle, DollarSign, Percent,
   FileText, ChevronDown, ChevronUp, ClipboardList, RotateCw, XCircle, Copy,
-  Crosshair, Clock, Info, Ban,
+  Crosshair, Clock, Info, Ban, Upload, CheckCircle, PlusCircle,
 } from "lucide-react";
 import { useStrategy } from "@/lib/strategy-context";
 import { useToast } from "@/hooks/use-toast";
@@ -808,6 +808,30 @@ function DeploymentDashboard({ deployment, onSettings, onAddFunds, onWithdraw, o
   const funds = d.funds || [];
   const changelog = d.changelog || [];
   const orders = d.orders || [];
+  const [showAddPosition, setShowAddPosition] = useState(false);
+  const [addPosForm, setAddPosForm] = useState({ symbol: "", entryPrice: "", entryDate: "", quantity: "" });
+  const [addPosSubmitting, setAddPosSubmitting] = useState(false);
+
+  const handleAddPosition = async () => {
+    setAddPosSubmitting(true);
+    try {
+      const res = await apiRequest("POST", `/api/deployments/${d.id}/manual-position`, {
+        symbol: addPosForm.symbol,
+        entryPrice: Number(addPosForm.entryPrice),
+        entryDate: addPosForm.entryDate || undefined,
+        quantity: Number(addPosForm.quantity),
+      });
+      const data = await res.json();
+      toast({ title: "Position added", description: data.message });
+      setShowAddPosition(false);
+      setAddPosForm({ symbol: "", entryPrice: "", entryDate: "", quantity: "" });
+      queryClient.invalidateQueries();
+    } catch (err: any) {
+      toast({ title: "Failed", description: err.message, variant: "destructive" });
+    } finally {
+      setAddPosSubmitting(false);
+    }
+  };
 
   const winRate = d.total_trades > 0 ? ((d.winning_trades / d.total_trades) * 100) : 0;
   const investedValue = positions.reduce((sum, p) => sum + (p.current_value || p.entry_value), 0);
@@ -998,6 +1022,11 @@ function DeploymentDashboard({ deployment, onSettings, onAddFunds, onWithdraw, o
 
         {/* Open Positions */}
         <TabsContent value="positions" className="mt-3">
+          <div className="flex justify-end mb-2">
+            <Button variant="outline" size="sm" className="h-7 text-xs gap-1" onClick={() => setShowAddPosition(true)}>
+              <PlusCircle className="w-3 h-3" /> Add Position
+            </Button>
+          </div>
           <PositionsTable positions={positions} />
         </TabsContent>
 
@@ -1021,6 +1050,73 @@ function DeploymentDashboard({ deployment, onSettings, onAddFunds, onWithdraw, o
           <ChangelogTable entries={changelog} />
         </TabsContent>
       </Tabs>
+
+      {/* Add Position Modal */}
+      <Dialog open={showAddPosition} onOpenChange={setShowAddPosition}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="text-sm">Add Manual Position</DialogTitle>
+            <DialogDescription className="text-xs text-muted-foreground">
+              Add a position for a trade placed outside the app.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3 py-2">
+            <div>
+              <Label className="text-xs">Symbol</Label>
+              <Input
+                className="h-8 text-xs mt-1"
+                placeholder="e.g. RELIANCE"
+                value={addPosForm.symbol}
+                onChange={(e) => setAddPosForm(f => ({ ...f, symbol: e.target.value.toUpperCase() }))}
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label className="text-xs">Entry Price</Label>
+                <Input
+                  type="number"
+                  step="0.01"
+                  className="h-8 text-xs mt-1"
+                  placeholder="Entry price"
+                  value={addPosForm.entryPrice}
+                  onChange={(e) => setAddPosForm(f => ({ ...f, entryPrice: e.target.value }))}
+                />
+              </div>
+              <div>
+                <Label className="text-xs">Quantity</Label>
+                <Input
+                  type="number"
+                  className="h-8 text-xs mt-1"
+                  placeholder="Qty"
+                  value={addPosForm.quantity}
+                  onChange={(e) => setAddPosForm(f => ({ ...f, quantity: e.target.value }))}
+                />
+              </div>
+            </div>
+            <div>
+              <Label className="text-xs">Entry Date (optional)</Label>
+              <Input
+                type="date"
+                className="h-8 text-xs mt-1"
+                value={addPosForm.entryDate}
+                onChange={(e) => setAddPosForm(f => ({ ...f, entryDate: e.target.value }))}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" size="sm" className="text-xs" onClick={() => setShowAddPosition(false)}>Cancel</Button>
+            <Button
+              size="sm"
+              className="text-xs"
+              disabled={addPosSubmitting || !addPosForm.symbol || !addPosForm.entryPrice || !addPosForm.quantity || Number(addPosForm.entryPrice) <= 0 || Number(addPosForm.quantity) <= 0}
+              onClick={handleAddPosition}
+            >
+              <PlusCircle className="w-3 h-3 mr-1" />
+              {addPosSubmitting ? "Adding..." : "Add Position"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
@@ -1384,7 +1480,67 @@ function OrdersTable({ orders, deploymentId, deploymentMode }: { orders: OrderLo
   const [cancellingAll, setCancellingAll] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [reconciling, setReconciling] = useState(false);
+  const [markFilledOrder, setMarkFilledOrder] = useState<OrderLog | null>(null);
+  const [markFilledForm, setMarkFilledForm] = useState({ status: "COMPLETE", fillPrice: "", fillDate: "" });
+  const [markFilledSubmitting, setMarkFilledSubmitting] = useState(false);
+  const [showTradebookUpload, setShowTradebookUpload] = useState(false);
+  const [tradebookFile, setTradebookFile] = useState<File | null>(null);
+  const [tradebookUploading, setTradebookUploading] = useState(false);
   const { toast } = useToast();
+
+  const handleMarkFilled = async () => {
+    if (!markFilledOrder) return;
+    setMarkFilledSubmitting(true);
+    try {
+      const res = await apiRequest("PATCH", `/api/orders/${markFilledOrder.id}/manual-update`, {
+        status: markFilledForm.status,
+        fillPrice: markFilledForm.status === "COMPLETE" ? Number(markFilledForm.fillPrice) : undefined,
+        fillDate: markFilledForm.fillDate || undefined,
+      });
+      const data = await res.json();
+      toast({ title: "Order updated", description: `${markFilledOrder.symbol}: ${markFilledForm.status}` });
+      setMarkFilledOrder(null);
+      queryClient.invalidateQueries();
+    } catch (err: any) {
+      toast({ title: "Update failed", description: err.message, variant: "destructive" });
+    } finally {
+      setMarkFilledSubmitting(false);
+    }
+  };
+
+  const handleTradebookUpload = async () => {
+    if (!tradebookFile) return;
+    setTradebookUploading(true);
+    try {
+      const formData = new FormData();
+      formData.append("file", tradebookFile);
+      const apiKey = document.querySelector('meta[name="api-key"]')?.getAttribute("content") || (window as any).__API_KEY__ || "";
+      const headers: Record<string, string> = {};
+      if (apiKey) headers["X-API-Key"] = apiKey;
+      const res = await fetch(`/api/deployments/${deploymentId}/upload-tradebook`, {
+        method: "POST",
+        headers,
+        body: formData,
+      });
+      if (!res.ok) {
+        const data = await res.json();
+        throw new Error(data.error || "Upload failed");
+      }
+      const data = await res.json();
+      const parts: string[] = [];
+      if (data.updated > 0) parts.push(`${data.updated} updated`);
+      if (data.created > 0) parts.push(`${data.created} created`);
+      if (data.unmatched > 0) parts.push(`${data.unmatched} unmatched`);
+      toast({ title: "Tradebook processed", description: `${data.matched} matched, ${parts.join(", ")}` });
+      setShowTradebookUpload(false);
+      setTradebookFile(null);
+      queryClient.invalidateQueries();
+    } catch (err: any) {
+      toast({ title: "Upload failed", description: err.message, variant: "destructive" });
+    } finally {
+      setTradebookUploading(false);
+    }
+  };
 
   const handleSyncOrders = async () => {
     setSyncing(true);
@@ -1535,6 +1691,15 @@ function OrdersTable({ orders, deploymentId, deploymentMode }: { orders: OrderLo
                   variant="outline"
                   size="sm"
                   className="h-7 text-xs gap-1"
+                  onClick={() => setShowTradebookUpload(true)}
+                >
+                  <Upload className="w-3 h-3" />
+                  Upload Tradebook
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-7 text-xs gap-1"
                   onClick={handleSyncOrders}
                   disabled={syncing}
                   data-testid="button-refresh-orders"
@@ -1610,17 +1775,31 @@ function OrdersTable({ orders, deploymentId, deploymentMode }: { orders: OrderLo
                   <TableCell className="text-right py-2 pr-4">
                     <div className="flex items-center justify-end gap-1">
                       {['OPEN', 'PENDING', 'PLACED'].includes(o.status) && (
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          className="h-6 px-2 text-[10px] text-loss hover:text-loss"
-                          disabled={cancellingId === o.id}
-                          onClick={() => handleCancel(o.id)}
-                          data-testid={`button-cancel-order-${i}`}
-                        >
-                          <XCircle className={`w-3 h-3 mr-1 ${cancellingId === o.id ? "animate-spin" : ""}`} />
-                          Cancel
-                        </Button>
+                        <>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-6 px-2 text-[10px] text-[#22c55e] hover:text-[#22c55e]"
+                            onClick={() => {
+                              setMarkFilledOrder(o);
+                              setMarkFilledForm({ status: "COMPLETE", fillPrice: String(o.price || ""), fillDate: "" });
+                            }}
+                          >
+                            <CheckCircle className="w-3 h-3 mr-1" />
+                            Mark Filled
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-6 px-2 text-[10px] text-loss hover:text-loss"
+                            disabled={cancellingId === o.id}
+                            onClick={() => handleCancel(o.id)}
+                            data-testid={`button-cancel-order-${i}`}
+                          >
+                            <XCircle className={`w-3 h-3 mr-1 ${cancellingId === o.id ? "animate-spin" : ""}`} />
+                            Cancel
+                          </Button>
+                        </>
                       )}
                       {(o.status === "FAILED" || o.status === "REJECTED") && (
                         <Button
@@ -1642,6 +1821,106 @@ function OrdersTable({ orders, deploymentId, deploymentMode }: { orders: OrderLo
           </Table>
         </div>
       </CardContent>
+
+      {/* Mark Filled Modal */}
+      <Dialog open={!!markFilledOrder} onOpenChange={(open) => { if (!open) setMarkFilledOrder(null); }}>
+        <DialogContent className="max-w-sm">
+          <DialogHeader>
+            <DialogTitle className="text-sm">Update Order — {markFilledOrder?.symbol}</DialogTitle>
+            <DialogDescription className="text-xs text-muted-foreground">
+              {markFilledOrder?.transaction_type} {markFilledOrder?.quantity} @ {markFilledOrder?.price != null ? fmtPrice(markFilledOrder.price) : "MKT"}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3 py-2">
+            <div>
+              <Label className="text-xs">Status</Label>
+              <Select value={markFilledForm.status} onValueChange={(v) => setMarkFilledForm(f => ({ ...f, status: v }))}>
+                <SelectTrigger className="h-8 text-xs mt-1">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="COMPLETE">COMPLETE</SelectItem>
+                  <SelectItem value="REJECTED">REJECTED</SelectItem>
+                  <SelectItem value="CANCELLED">CANCELLED</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            {markFilledForm.status === "COMPLETE" && (
+              <div>
+                <Label className="text-xs">Fill Price</Label>
+                <Input
+                  type="number"
+                  step="0.01"
+                  className="h-8 text-xs mt-1"
+                  placeholder="Fill price"
+                  value={markFilledForm.fillPrice}
+                  onChange={(e) => setMarkFilledForm(f => ({ ...f, fillPrice: e.target.value }))}
+                />
+              </div>
+            )}
+            <div>
+              <Label className="text-xs">Fill Date (optional)</Label>
+              <Input
+                type="date"
+                className="h-8 text-xs mt-1"
+                value={markFilledForm.fillDate}
+                onChange={(e) => setMarkFilledForm(f => ({ ...f, fillDate: e.target.value }))}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" size="sm" className="text-xs" onClick={() => setMarkFilledOrder(null)}>Cancel</Button>
+            <Button
+              size="sm"
+              className="text-xs"
+              disabled={markFilledSubmitting || (markFilledForm.status === "COMPLETE" && (!markFilledForm.fillPrice || Number(markFilledForm.fillPrice) <= 0))}
+              onClick={handleMarkFilled}
+            >
+              {markFilledSubmitting ? "Updating..." : "Update Order"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Tradebook CSV Upload Modal */}
+      <Dialog open={showTradebookUpload} onOpenChange={setShowTradebookUpload}>
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle className="text-sm">Upload Zerodha Tradebook</DialogTitle>
+            <DialogDescription className="text-xs text-muted-foreground">
+              Upload a CSV from Kite Console (Reports &gt; Tradebook). Orders will be matched by Kite Order ID.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3 py-2">
+            <div>
+              <Label className="text-xs">CSV File</Label>
+              <Input
+                type="file"
+                accept=".csv"
+                className="h-8 text-xs mt-1"
+                onChange={(e) => setTradebookFile(e.target.files?.[0] || null)}
+              />
+            </div>
+            {tradebookFile && (
+              <p className="text-[11px] text-muted-foreground">
+                Selected: {tradebookFile.name} ({(tradebookFile.size / 1024).toFixed(1)} KB)
+              </p>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" size="sm" className="text-xs" onClick={() => { setShowTradebookUpload(false); setTradebookFile(null); }}>Cancel</Button>
+            <Button
+              size="sm"
+              className="text-xs"
+              disabled={!tradebookFile || tradebookUploading}
+              onClick={handleTradebookUpload}
+            >
+              <Upload className="w-3 h-3 mr-1" />
+              {tradebookUploading ? "Uploading..." : "Upload & Reconcile"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </Card>
   );
 }

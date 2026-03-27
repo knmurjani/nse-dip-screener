@@ -14,8 +14,9 @@ import { getPortfolioSummary, runDailyLifecycle } from "./live-portfolio";
 import { runBollingerScreener, clearBollingerCache } from "./screener-bollinger";
 import { getAllStrategies, getStrategy } from "./strategies";
 import { runDeploymentLifecycle, runPreMarketCheck, runEndOfDaySummary, isMarketOpen } from "./lifecycle";
-import { syncDeploymentOrders, reconcilePendingOrders } from "./order-sync";
-import { sendMorningBrief, sendDailyPnLSummary, sendTelegramMessage } from "./telegram";
+import { syncDeploymentOrders, reconcilePendingOrders, createPositionFromFill } from "./order-sync";
+import { sendMorningBrief, sendDailyPnLSummary, sendTelegramMessage, sendTradeAlert } from "./telegram";
+import multer from "multer";
 import { startTelegramBot } from "./telegram-bot";
 import { istNow as getIstNow } from "./storage";
 
@@ -41,6 +42,61 @@ function apiAuth(req: Request, res: Response, next: NextFunction) {
   if (provided === API_AUTH_KEY) return next();
 
   res.status(401).json({ error: "Unauthorized — provide X-API-Key header" });
+}
+
+// ─── CSV Parsing Helpers ───
+
+function parseCSV(text: string): Record<string, string>[] {
+  const lines = text.split(/\r?\n/).filter(l => l.trim());
+  if (lines.length < 2) return [];
+
+  const headers = parseCSVLine(lines[0]);
+  const rows: Record<string, string>[] = [];
+
+  for (let i = 1; i < lines.length; i++) {
+    const values = parseCSVLine(lines[i]);
+    if (values.length === 0) continue;
+    const row: Record<string, string> = {};
+    for (let j = 0; j < headers.length; j++) {
+      row[headers[j].trim()] = (values[j] || "").trim();
+    }
+    rows.push(row);
+  }
+  return rows;
+}
+
+function parseCSVLine(line: string): string[] {
+  const result: string[] = [];
+  let current = "";
+  let inQuotes = false;
+
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (ch === '"') {
+      if (inQuotes && line[i + 1] === '"') { current += '"'; i++; }
+      else { inQuotes = !inQuotes; }
+    } else if (ch === ',' && !inQuotes) {
+      result.push(current);
+      current = "";
+    } else {
+      current += ch;
+    }
+  }
+  result.push(current);
+  return result;
+}
+
+function findColumn(row: Record<string, string>, candidates: string[]): string | undefined {
+  for (const c of candidates) {
+    if (row[c] !== undefined && row[c] !== "") return row[c];
+  }
+  // Case-insensitive fallback
+  const rowKeys = Object.keys(row);
+  for (const c of candidates) {
+    const found = rowKeys.find(k => k.toLowerCase().replace(/[.\s]/g, "") === c.toLowerCase().replace(/[.\s]/g, ""));
+    if (found && row[found] !== "") return row[found];
+  }
+  return undefined;
 }
 
 export async function registerRoutes(
@@ -1246,6 +1302,247 @@ export async function registerRoutes(
     } catch (error: any) {
       console.error("[API] Reconcile error:", error.message);
       res.status(500).json({ error: "Reconciliation failed", message: error.message });
+    }
+  });
+
+  // ─── Manual Reconciliation: Update Order Status ───
+
+  app.patch("/api/orders/:orderId/manual-update", async (req, res) => {
+    try {
+      const orderId = parseInt(req.params.orderId);
+      const order = getOrder(orderId);
+      if (!order) return res.status(404).json({ error: "Order not found" });
+      if (!['OPEN', 'PENDING', 'PLACED'].includes(order.status)) {
+        return res.status(400).json({ error: `Can only manually update OPEN/PENDING/PLACED orders (current: ${order.status})` });
+      }
+
+      const { status, fillPrice, fillDate } = req.body;
+      if (!status) return res.status(400).json({ error: "status is required" });
+      if (!['COMPLETE', 'REJECTED', 'CANCELLED'].includes(status)) {
+        return res.status(400).json({ error: "status must be COMPLETE, REJECTED, or CANCELLED" });
+      }
+      if (status === 'COMPLETE' && (!fillPrice || fillPrice <= 0)) {
+        return res.status(400).json({ error: "fillPrice is required for COMPLETE status" });
+      }
+
+      const price = status === 'COMPLETE' ? Number(fillPrice) : undefined;
+      const qty = order.quantity;
+
+      // Update the order status
+      updateOrderStatus(orderId, {
+        status,
+        fill_price: price,
+        fill_quantity: status === 'COMPLETE' ? qty : undefined,
+      });
+
+      logSystem("manual_reconcile", "order_updated", `Order #${orderId} ${order.symbol}: ${order.status} → ${status}${price ? ` @ ₹${price}` : ''} (manual)`);
+
+      // If COMPLETE BUY → create position
+      if (status === 'COMPLETE' && order.transaction_type === 'BUY') {
+        try {
+          createPositionFromFill(order, order.symbol, price!, qty);
+          try {
+            await sendTradeAlert("ENTRY", {
+              symbol: order.symbol,
+              price: price!,
+              quantity: qty,
+              strategy: order.strategy,
+            });
+          } catch { /* Telegram failure OK */ }
+        } catch (err: any) {
+          logSystem("manual_reconcile", "position_error", `${order.symbol}: ${err.message}`);
+        }
+      }
+
+      // Send Telegram notification
+      try {
+        await sendTelegramMessage(
+          `✏️ <b>MANUAL ORDER UPDATE</b>\n${order.symbol} ${order.order_type} ${order.transaction_type}\nStatus: ${order.status} → ${status}${price ? `\nFill Price: ₹${price.toFixed(2)}` : ''}${fillDate ? `\nFill Date: ${fillDate}` : ''}\nOrder #${orderId}`
+        );
+      } catch { /* Telegram failure OK */ }
+
+      res.json(getOrder(orderId));
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // ─── Manual Reconciliation: Tradebook CSV Upload ───
+
+  const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 5 * 1024 * 1024 } });
+
+  app.post("/api/deployments/:id/upload-tradebook", upload.single("file"), async (req, res) => {
+    try {
+      const deploymentId = parseInt(req.params.id);
+      const deployment = getDeployment(deploymentId);
+      if (!deployment) return res.status(404).json({ error: "Deployment not found" });
+
+      const file = (req as any).file;
+      if (!file) return res.status(400).json({ error: "CSV file is required" });
+
+      const csvText = file.buffer.toString("utf-8");
+      const rows = parseCSV(csvText);
+
+      if (rows.length === 0) {
+        return res.status(400).json({ error: "No data rows found in CSV" });
+      }
+
+      const result = { matched: 0, updated: 0, unmatched: 0, created: 0, errors: [] as string[] };
+
+      for (const row of rows) {
+        const symbol = findColumn(row, ["symbol", "Symbol", "Trading Symbol", "tradingsymbol"]);
+        const priceStr = findColumn(row, ["price", "Avg. price", "avg_price", "Price", "Avg.price"]);
+        const orderIdStr = findColumn(row, ["order_id", "Order No.", "order_no", "Order ID", "Order No"]);
+        const typeStr = findColumn(row, ["type", "Type", "trade_type", "Buy/Sell", "Trade Type"]);
+        const dateStr = findColumn(row, ["trade_date", "Trade Date", "Date", "Trade date"]);
+        const qtyStr = findColumn(row, ["qty", "Qty", "Quantity", "quantity"]);
+
+        if (!symbol) {
+          result.errors.push(`Row missing symbol: ${JSON.stringify(row)}`);
+          continue;
+        }
+
+        const price = priceStr ? parseFloat(priceStr) : 0;
+        const qty = qtyStr ? parseInt(qtyStr) : 0;
+        const tradeType = (typeStr || "BUY").toUpperCase();
+        const normalizedType = tradeType.includes("BUY") ? "BUY" : "SELL";
+
+        // Try to match by Kite order ID
+        let matched = false;
+        if (orderIdStr) {
+          const existingOrder = getOrderByKiteId(orderIdStr);
+          if (existingOrder && existingOrder.deployment_id === deploymentId) {
+            result.matched++;
+            if (['OPEN', 'PENDING', 'PLACED'].includes(existingOrder.status)) {
+              updateOrderStatus(existingOrder.id, {
+                status: 'COMPLETE',
+                fill_price: price > 0 ? price : undefined,
+                fill_quantity: qty > 0 ? qty : undefined,
+              });
+
+              // Create position for BUY orders
+              if (existingOrder.transaction_type === 'BUY' && price > 0) {
+                try {
+                  createPositionFromFill(existingOrder, existingOrder.symbol, price, qty > 0 ? qty : existingOrder.quantity);
+                } catch (err: any) {
+                  result.errors.push(`Position for ${existingOrder.symbol}: ${err.message}`);
+                }
+              }
+              result.updated++;
+            }
+            matched = true;
+          }
+        }
+
+        if (!matched) {
+          // Create new order + position for unmatched BUY trades
+          if (normalizedType === 'BUY' && price > 0 && qty > 0) {
+            try {
+              const cleanSymbol = symbol.replace(".NS", "").replace("NSE:", "");
+              const newOrderId = insertOrder({
+                deployment_id: deploymentId,
+                symbol: cleanSymbol,
+                order_type: "MARKET",
+                transaction_type: "BUY",
+                quantity: qty,
+                price: price,
+                status: "COMPLETE",
+                kite_order_id: orderIdStr || undefined,
+                fill_price: price,
+                fill_quantity: qty,
+                strategy: deployment.strategy_id,
+              });
+
+              const newOrder = getOrder(newOrderId);
+              createPositionFromFill(newOrder, cleanSymbol, price, qty);
+              result.created++;
+            } catch (err: any) {
+              result.errors.push(`Create ${symbol}: ${err.message}`);
+            }
+          } else {
+            result.unmatched++;
+          }
+        }
+      }
+
+      logSystem("manual_reconcile", "tradebook_upload",
+        `Deployment #${deploymentId}: CSV upload — ${result.matched} matched, ${result.updated} updated, ${result.created} created, ${result.unmatched} unmatched`
+      );
+
+      // Send Telegram summary
+      try {
+        const parts = [];
+        if (result.updated > 0) parts.push(`${result.updated} updated`);
+        if (result.created > 0) parts.push(`${result.created} created`);
+        if (result.unmatched > 0) parts.push(`${result.unmatched} unmatched`);
+        await sendTelegramMessage(
+          `📊 <b>TRADEBOOK UPLOAD</b>\n${deployment.name}\nProcessed ${rows.length} rows:\n${parts.join(", ")}`
+        );
+      } catch { /* Telegram failure OK */ }
+
+      res.json(result);
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
+    }
+  });
+
+  // ─── Manual Reconciliation: Manual Position Entry ───
+
+  app.post("/api/deployments/:id/manual-position", async (req, res) => {
+    try {
+      const deploymentId = parseInt(req.params.id);
+      const deployment = getDeployment(deploymentId);
+      if (!deployment) return res.status(404).json({ error: "Deployment not found" });
+
+      const { symbol, entryPrice, entryDate, quantity } = req.body;
+      if (!symbol || !entryPrice || !quantity) {
+        return res.status(400).json({ error: "symbol, entryPrice, and quantity are required" });
+      }
+
+      const cleanSymbol = symbol.replace(".NS", "").replace("NSE:", "").toUpperCase().trim();
+      const price = Number(entryPrice);
+      const qty = Number(quantity);
+      const date = entryDate || istNow().split(" ")[0];
+
+      if (price <= 0 || qty <= 0) {
+        return res.status(400).json({ error: "entryPrice and quantity must be positive" });
+      }
+
+      // Create order record
+      const orderId = insertOrder({
+        deployment_id: deploymentId,
+        symbol: cleanSymbol,
+        order_type: "MARKET",
+        transaction_type: "BUY",
+        quantity: qty,
+        price: price,
+        status: "COMPLETE",
+        fill_price: price,
+        fill_quantity: qty,
+        strategy: deployment.strategy_id,
+      });
+
+      // Create position
+      const order = getOrder(orderId);
+      createPositionFromFill(order, cleanSymbol, price, qty);
+
+      logSystem("manual_reconcile", "manual_position",
+        `Deployment #${deploymentId}: Manual position — ${cleanSymbol} ${qty} shares @ ₹${price.toFixed(2)}`
+      );
+
+      // Send Telegram notification
+      try {
+        await sendTradeAlert("ENTRY", {
+          symbol: cleanSymbol,
+          price: price,
+          quantity: qty,
+          strategy: deployment.strategy_id,
+        });
+      } catch { /* Telegram failure OK */ }
+
+      res.json({ order: getOrder(orderId), message: `Position created: ${cleanSymbol} ${qty} shares @ ₹${price.toFixed(2)}` });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message });
     }
   });
 
