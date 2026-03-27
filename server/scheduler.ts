@@ -5,7 +5,7 @@ import { runAllActiveLifecycles, runAllPreMarketChecks, runAllEndOfDaySummaries,
 import { sendSystemAlert, sendTelegramMessage } from "./telegram";
 import { logSystem, getActiveDeployments } from "./storage";
 import { isAuthenticated } from "./kite";
-import { syncAllPendingOrders } from "./order-sync";
+import { syncAllPendingOrders, reconcilePendingOrders } from "./order-sync";
 
 /**
  * Cron-based scheduler — refreshes screener data and runs deployment lifecycles.
@@ -140,6 +140,23 @@ export function startScheduler() {
       );
     } catch (e: any) {
       console.error("[Scheduler] Initial load failed:", e.message);
+    }
+
+    // Reconcile pending orders on startup if Kite is authenticated
+    if (isAuthenticated()) {
+      try {
+        console.log("[Scheduler] Running startup order reconciliation...");
+        const reconcileResult = await reconcilePendingOrders();
+        if (reconcileResult.total > 0) {
+          console.log(`[Scheduler] Startup reconciliation: ${reconcileResult.filled} filled, ${reconcileResult.rejected} rejected, ${reconcileResult.cancelled} cancelled out of ${reconcileResult.total}`);
+        } else {
+          console.log("[Scheduler] No pending orders to reconcile on startup");
+        }
+      } catch (e: any) {
+        console.error("[Scheduler] Startup reconciliation failed:", e.message);
+      }
+    } else {
+      console.log("[Scheduler] Kite not authenticated — skipping startup reconciliation");
     }
   }, 5000);
 }

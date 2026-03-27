@@ -1383,6 +1383,7 @@ function OrdersTable({ orders, deploymentId, deploymentMode }: { orders: OrderLo
   const [cancellingId, setCancellingId] = useState<number | null>(null);
   const [cancellingAll, setCancellingAll] = useState(false);
   const [syncing, setSyncing] = useState(false);
+  const [reconciling, setReconciling] = useState(false);
   const { toast } = useToast();
 
   const handleSyncOrders = async () => {
@@ -1402,6 +1403,29 @@ function OrdersTable({ orders, deploymentId, deploymentMode }: { orders: OrderLo
       toast({ title: "Sync failed", description: err.message, variant: "destructive" });
     } finally {
       setSyncing(false);
+    }
+  };
+
+  const handleReconcileAll = async () => {
+    setReconciling(true);
+    try {
+      const res = await apiRequest("POST", "/api/reconcile-all");
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || "Reconciliation failed");
+      const parts: string[] = [];
+      if (data.filled > 0) parts.push(`${data.filled} filled`);
+      if (data.rejected > 0) parts.push(`${data.rejected} rejected`);
+      if (data.cancelled > 0) parts.push(`${data.cancelled} cancelled`);
+      if (data.stillPending > 0) parts.push(`${data.stillPending} still pending`);
+      const desc = data.total > 0
+        ? `Checked ${data.total} orders: ${parts.join(", ")}`
+        : "No pending orders to reconcile";
+      toast({ title: "Reconciliation complete", description: desc });
+      queryClient.invalidateQueries();
+    } catch (err: any) {
+      toast({ title: "Reconciliation failed", description: err.message, variant: "destructive" });
+    } finally {
+      setReconciling(false);
     }
   };
 
@@ -1495,17 +1519,30 @@ function OrdersTable({ orders, deploymentId, deploymentMode }: { orders: OrderLo
           </span>
           <div className="flex items-center gap-2">
             {deploymentMode === "real" && (
-              <Button
-                variant="outline"
-                size="sm"
-                className="h-7 text-xs gap-1"
-                onClick={handleSyncOrders}
-                disabled={syncing}
-                data-testid="button-refresh-orders"
-              >
-                <RotateCw className={`w-3 h-3 ${syncing ? "animate-spin" : ""}`} />
-                {syncing ? "Syncing..." : "Refresh Orders"}
-              </Button>
+              <>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-7 text-xs gap-1"
+                  onClick={handleReconcileAll}
+                  disabled={reconciling}
+                  data-testid="button-reconcile-all"
+                >
+                  <RotateCw className={`w-3 h-3 ${reconciling ? "animate-spin" : ""}`} />
+                  {reconciling ? "Reconciling..." : "Reconcile All"}
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-7 text-xs gap-1"
+                  onClick={handleSyncOrders}
+                  disabled={syncing}
+                  data-testid="button-refresh-orders"
+                >
+                  <RotateCw className={`w-3 h-3 ${syncing ? "animate-spin" : ""}`} />
+                  {syncing ? "Syncing..." : "Refresh Orders"}
+                </Button>
+              </>
             )}
             {pendingOrders.length > 0 && (
               <Button

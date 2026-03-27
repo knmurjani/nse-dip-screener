@@ -600,5 +600,12 @@ export function getPendingOrders(deploymentId: number): any[] {
   ).all(deploymentId);
 }
 
+/** Get ALL pending orders across all deployments (for cross-deployment reconciliation). */
+export function getAllPendingOrders(): any[] {
+  return sqlite.prepare(
+    "SELECT * FROM orders_log WHERE status IN ('OPEN', 'PENDING', 'PLACED') AND kite_order_id IS NOT NULL ORDER BY id DESC"
+  ).all();
+}
+
 // Log app startup
 logSystem("system", "server_started", `App started at ${new Date().toISOString()}`);

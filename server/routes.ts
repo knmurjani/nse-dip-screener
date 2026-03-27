@@ -14,7 +14,7 @@ import { getPortfolioSummary, runDailyLifecycle } from "./live-portfolio";
 import { runBollingerScreener, clearBollingerCache } from "./screener-bollinger";
 import { getAllStrategies, getStrategy } from "./strategies";
 import { runDeploymentLifecycle, runPreMarketCheck, runEndOfDaySummary, isMarketOpen } from "./lifecycle";
-import { syncDeploymentOrders } from "./order-sync";
+import { syncDeploymentOrders, reconcilePendingOrders } from "./order-sync";
 import { sendMorningBrief, sendDailyPnLSummary, sendTelegramMessage } from "./telegram";
 import { startTelegramBot } from "./telegram-bot";
 import { istNow as getIstNow } from "./storage";
@@ -117,6 +117,16 @@ export async function registerRoutes(
             `✅ <b>Kite Connected</b>\nUser: ${session.user_name}\nTime: ${time}\nToken valid for today's trading session.`
           );
         } catch { /* never break redirect on Telegram failure */ }
+
+        // Auto-reconcile pending orders from previous days (non-blocking)
+        reconcilePendingOrders().then(result => {
+          if (result.filled > 0 || result.rejected > 0 || result.cancelled > 0) {
+            logSystem("reconcile", "on_login", `Login reconciliation: ${result.filled} filled, ${result.rejected} rejected, ${result.cancelled} cancelled out of ${result.total}`);
+          }
+        }).catch(err => {
+          console.error("[Reconcile] Login reconciliation error:", err.message);
+        });
+
         res.redirect("/");
       } catch (e: any) {
         // Send Telegram failure notification
@@ -1220,6 +1230,22 @@ export async function registerRoutes(
     } catch (error: any) {
       console.error("[API] Order sync error:", error.message);
       res.status(500).json({ error: "Order sync failed", message: error.message });
+    }
+  });
+
+  // ─── Reconcile All Pending Orders (cross-day, cross-deployment) ───
+
+  app.post("/api/reconcile-all", async (req, res) => {
+    try {
+      if (!isAuthenticated()) {
+        return res.status(400).json({ error: "Kite not authenticated — please connect first" });
+      }
+      logSystem("reconcile", "manual_trigger", "Manual reconcile-all triggered");
+      const result = await reconcilePendingOrders();
+      res.json(result);
+    } catch (error: any) {
+      console.error("[API] Reconcile error:", error.message);
+      res.status(500).json({ error: "Reconciliation failed", message: error.message });
     }
   });
 
